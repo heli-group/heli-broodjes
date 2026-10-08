@@ -4,13 +4,20 @@
 //  Testcodes (alleen in de testmodus):
 //    Davy van de Velde (personeel)   code 1234
 //    Khaled (lesgever)               code 123456
-//    Jeffrey (beheerder)             code 1111
-//  Extra: voeg ?open=0 toe aan het webadres om "na 9u" te testen.
+//    Jeffrey, Ian, Lies, Lindsay en Jeroen De Meyer (beheerders)   code 1111
+//  Onderaan de pagina kan je het testuur instellen om "voor 9u" en "na 9u" te zien.
 // ============================================================
 (function () {
-  const KEY = 'bj_demo_v1';
+  const KEY = 'bj_demo_v2';
+  const CLK = 'bj_demo_clock';
   const pad = n => String(n).padStart(2, '0');
-  const today = () => { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
+  function simNow() {
+    let c = null; try { c = JSON.parse(localStorage.getItem(CLK)); } catch (e) {}
+    if (!c) return new Date();
+    const d = new Date(c.setAt);
+    return new Date(new Date(d.getFullYear(), d.getMonth(), d.getDate(), c.h, c.m, 0).getTime() + (Date.now() - c.setAt));
+  }
+  const today = () => { const d = simNow(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
   const monthOf = () => today().slice(0, 7);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -42,7 +49,10 @@
         { id: 'p6', name: 'Khaled', type: 'lesgever', beheer: false, actief: true, code: '123456' },
         { id: 'p7', name: 'Jeremie', type: 'lesgever', beheer: false, actief: true, code: '123456' },
         { id: 'p8', name: 'Jeffrey', type: 'personeel', beheer: true, actief: true, code: '1111' },
-        { id: 'p9', name: 'Lies', type: 'personeel', beheer: true, actief: true, code: '1111' }
+        { id: 'p9', name: 'Lies', type: 'personeel', beheer: true, actief: true, code: '1111' },
+        { id: 'p10', name: 'Ian', type: 'personeel', beheer: true, actief: true, code: '1111' },
+        { id: 'p11', name: 'Lindsay', type: 'personeel', beheer: true, actief: true, code: '1111' },
+        { id: 'p12', name: 'Jeroen De Meyer', type: 'personeel', beheer: true, actief: true, code: '1111' }
       ].map(p => Object.assign({ tries: 0, lockUntil: 0 }, p)),
       menu: MENU.map((m, i) => ({
         id: 'm' + (i + 1), name: m[0], category: m[1], price: m[2], order: i,
@@ -59,14 +69,18 @@
     if (db.mailDay !== today()) { db.mail = { sentAt: null, sentBy: null }; db.mailDay = today(); }
   }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} }
-  const qs = () => new URLSearchParams(location.search);
-  const isOpen = () => qs().get('open') !== '0';
-  const state = () => {
-    const d = new Date(); const [hh, mm] = db.settings.closeTime.split(':').map(Number);
-    const c = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm, 0);
-    if (c < d) c.setDate(c.getDate() + 1);
-    return { open: isOpen(), now: d.toISOString(), closesAt: c.toISOString() };
-  };
+  const closeToday = () => { const d = simNow(); const [hh, mm] = db.settings.closeTime.split(':').map(Number); return new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm, 0); };
+  const isOpen = () => simNow() < closeToday();
+  const state = () => ({ open: isOpen(), now: simNow().toISOString(), closesAt: closeToday().toISOString() });
+  function codeError(type, code) {
+    code = String(code || '');
+    if (!/^\d+$/.test(code)) return 'Een code bestaat enkel uit cijfers.';
+    const min = type === 'lesgever' ? 6 : 4;
+    if (code.length < min || code.length > 8) return 'De code heeft ' + min + ' tot 8 cijfers.';
+    if (/^(\d)\1+$/.test(code)) return 'Kies geen code met enkel hetzelfde cijfer.';
+    if ('0123456789'.includes(code) || '9876543210'.includes(code)) return 'Kies geen code zoals 1234 of 4321.';
+    return '';
+  }
   const fail = (message, error) => ({ ok: false, message, error: error || 'fout' });
   const person = id => db.persons.find(p => p.id === id);
   const menuItem = id => db.menu.find(m => m.id === id);
@@ -99,11 +113,11 @@
       let unit, st = status || (mailSent ? 'Te laat' : 'Nieuw');
       if (owner.type === 'lesgever') unit = db.settings.lesgeverPrijs;
       else { unit = effPrice(m); if (unit == null) { if (!m.openPrice) return fail('Dit product is niet beschikbaar.'); st = status || 'Prijs te bepalen'; } }
-      const row = { id: 'o' + (++db.seq), ref, personId: owner.id, person: owner.name, type: owner.type, place: body.place || '', date: today(), menuId: m.id, product: m.name, category: m.category, soort, qty, remark: String(l.remark || '').slice(0, 200), unit, surcharge: (owner.type !== 'lesgever' && soort === 'fitness') ? db.settings.fitnessSurcharge : 0, status: st, ts: new Date().toISOString(), by: by || '', sentAt: null, calledBy: '', calledAt: '' };
+      const row = { id: 'o' + (++db.seq), ref, personId: owner.id, person: owner.name, type: owner.type, place: body.place || '', date: today(), menuId: m.id, product: m.name, category: m.category, soort, qty, remark: String(l.remark || '').slice(0, 200), unit, surcharge: (owner.type !== 'lesgever' && soort === 'fitness') ? db.settings.fitnessSurcharge : 0, status: st, ts: simNow().toISOString(), by: by || '', sentAt: null, calledBy: '', calledAt: '' };
       db.orders.push(row); out.push(row);
     }
     save();
-    return { ok: true, ref, sentAt: new Date().toISOString(), status: out[0].status };
+    return { ok: true, ref, sentAt: simNow().toISOString(), status: out[0].status };
   }
   const todayOrders = () => db.orders.filter(o => o.date === today() && o.status !== 'Geannuleerd');
   const rowTotal = o => o.unit == null ? 0 : (o.unit + o.surcharge) * o.qty;
@@ -186,7 +200,7 @@
       if (!me.beheer) return fail('Geen toegang.', 'auth');
       const t = person(b.targetId); const q = parseInt(b.qty, 10);
       if (!t || !(q >= 1 && q <= 20)) return fail('Kies een persoon en een aantal.');
-      db.tokens.push({ id: 't' + (++db.seq), personId: t.id, name: t.name, qty: q, price: db.settings.tokenPrice, date: today(), ts: new Date().toISOString(), by: me.name, undone: false });
+      db.tokens.push({ id: 't' + (++db.seq), personId: t.id, name: t.name, qty: q, price: db.settings.tokenPrice, date: today(), ts: simNow().toISOString(), by: me.name, undone: false });
       save(); return { ok: true };
     },
     listTokens: (b, me) => me.beheer ? { ok: true, tokens: db.tokens.filter(t => !t.undone).slice(-6).reverse().map(t => ({ id: t.id, name: t.name, qty: t.qty, ts: t.ts, by: t.by })) } : fail('Geen toegang.', 'auth'),
@@ -217,7 +231,7 @@
       if (!me.beheer) return fail('Geen toegang.', 'auth');
       const t = person(b.targetId); if (!t) return fail('Kies eerst een persoon.');
       const r = writeOrder(b, t, 'Telefonisch doorgegeven', me.name);
-      if (r.ok) { db.orders.filter(o => o.ref === r.ref).forEach(o => { o.calledBy = me.name; o.calledAt = new Date().toISOString(); }); save(); }
+      if (r.ok) { db.orders.filter(o => o.ref === r.ref).forEach(o => { o.calledBy = me.name; o.calledAt = simNow().toISOString(); }); save(); }
       return r;
     },
     listLate(b, me) {
@@ -228,7 +242,7 @@
     },
     markCalled(b, me) {
       if (!me.beheer) return fail('Geen toegang.', 'auth');
-      db.orders.forEach(o => { if (o.ref === b.ref && o.status === 'Te laat') { o.status = 'Telefonisch doorgegeven'; o.calledBy = me.name; o.calledAt = new Date().toISOString(); } });
+      db.orders.forEach(o => { if (o.ref === b.ref && o.status === 'Te laat') { o.status = 'Telefonisch doorgegeven'; o.calledBy = me.name; o.calledAt = simNow().toISOString(); } });
       save(); return { ok: true };
     },
     getMailPreview(b, me) {
@@ -239,13 +253,13 @@
       const stuks = rows.reduce((s, o) => s + o.qty, 0);
       let html = mailHtml(rows);
       if (mode === 'additions') html = '<div style="font-family:Segoe UI,Arial,sans-serif;background:#FFF1E3;border:1px solid #F2C79B;padding:10px 12px;font-weight:700;color:#5A3510;margin-bottom:8px">AANVULLING op de bestelling van ' + new Date(db.mail.sentAt).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' }) + '. Alleen de regels hieronder zijn nieuw.</div>' + html;
-      return { ok: true, status: all.length === 0 ? 'empty' : (sent ? 'sent' : 'ready'), mode, sentAt: db.mail.sentAt, sentBy: db.mail.sentBy, additions: all.filter(o => !o.sentAt).length && sent ? all.filter(o => !o.sentAt).length : 0, subject: (mode === 'additions' ? 'AANVULLING: ' : '') + 'Bestelling Heli Wetteren, ' + new Date().toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long' }), to: '[e-mail broodjeszaak]', counts: { stuks, regels: rows.length, plaatsen: new Set(rows.map(r => r.place)).size }, html };
+      return { ok: true, status: all.length === 0 ? 'empty' : (sent ? 'sent' : 'ready'), mode, sentAt: db.mail.sentAt, sentBy: db.mail.sentBy, additions: all.filter(o => !o.sentAt).length && sent ? all.filter(o => !o.sentAt).length : 0, subject: (mode === 'additions' ? 'AANVULLING: ' : '') + 'Bestelling Heli Wetteren, ' + simNow().toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long' }), to: '[e-mail broodjeszaak]', counts: { stuks, regels: rows.length, plaatsen: new Set(rows.map(r => r.place)).size }, html };
     },
     sendMail(b, me) {
       if (!me.beheer) return fail('Geen toegang.', 'auth');
       const all = todayOrders(); const rows = db.mail.sentAt && b.mode === 'additions' ? all.filter(o => !o.sentAt) : all;
       if (!rows.length) return fail('Er is niets om te verzenden.');
-      const now = new Date().toISOString();
+      const now = simNow().toISOString();
       rows.forEach(o => { o.sentAt = now; if (['Nieuw', 'Te laat'].includes(o.status)) o.status = 'Verstuurd'; });
       db.mail = { sentAt: db.mail.sentAt || now, sentBy: db.mail.sentBy || me.name }; save();
       return { ok: true, sentAt: now };
@@ -258,18 +272,26 @@
     resetCode(b, me) {
       if (!me.beheer) return fail('Geen toegang.', 'auth');
       const p = person(b.targetId); if (!p) return fail('Persoon niet gevonden.');
-      const len = p.type === 'lesgever' ? 6 : 4; let c = ''; for (let i = 0; i < len; i++) c += Math.floor(Math.random() * 10);
+      let c = '';
+      if (b.code) { const e = codeError(p.type, b.code); if (e) return fail(e); c = String(b.code); }
+      else { for (let i = 0; i < (p.type === 'lesgever' ? 6 : 4); i++) c += Math.floor(Math.random() * 10); }
       p.code = c; p.tries = 0; p.lockUntil = 0; save(); return { ok: true, code: c };
+    },
+    changeOwnCode(b, me) {
+      const e = codeError(me.type, b.newCode); if (e) return fail(e);
+      me.code = String(b.newCode); me.tries = 0; save(); return { ok: true };
     },
     setActive(b, me) { if (!me.beheer) return fail('Geen toegang.', 'auth'); const p = person(b.targetId); if (p) p.actief = !!b.actief; save(); return { ok: true }; },
     addPerson(b, me) {
       if (!me.beheer) return fail('Geen toegang.', 'auth');
       const name = String(b.name || '').trim(); if (name.length < 2) return fail('Typ een naam.');
-      const type = b.type === 'lesgever' ? 'lesgever' : 'personeel'; let c = ''; for (let i = 0; i < (type === 'lesgever' ? 6 : 4); i++) c += Math.floor(Math.random() * 10);
+      const type = b.type === 'lesgever' ? 'lesgever' : 'personeel'; let c = '';
+      if (b.code) { const e = codeError(type, b.code); if (e) return fail(e); c = String(b.code); }
+      else for (let i = 0; i < (type === 'lesgever' ? 6 : 4); i++) c += Math.floor(Math.random() * 10);
       db.persons.push({ id: 'p' + (++db.seq), name, type, beheer: false, actief: true, code: c, tries: 0, lockUntil: 0 }); save(); return { ok: true, code: c };
     }
   };
-  const PUBLIC = ['ping', 'findPerson', 'login'];
+  const PUBLIC = ['ping', 'findPerson', 'login', 'getState'];
   window.DemoApi = {
     async handle(body) {
       load();
@@ -281,6 +303,12 @@
       if (!me) return fail('Je bent niet ingelogd.', 'auth');
       return fn(body, me);
     },
-    reset() { localStorage.removeItem(KEY); }
+    reset() { localStorage.removeItem(KEY); },
+    setClock(hhmm) {
+      if (!hhmm) { localStorage.removeItem(CLK); return; }
+      const [h, m] = hhmm.split(':').map(Number);
+      localStorage.setItem(CLK, JSON.stringify({ h, m, setAt: Date.now() }));
+    },
+    getClock() { const d = simNow(); return { fixed: !!localStorage.getItem(CLK), text: pad(d.getHours()) + ':' + pad(d.getMinutes()) }; }
   };
 })();

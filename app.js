@@ -72,16 +72,54 @@
     if (!st) return;
     S.open = !!st.open; S.closesAt = st.closesAt; S.offset = Date.parse(st.now) - Date.now();
   }
+  function clockEl() { return h('div', { class: 'clock' }, h('span', { class: 'cdate' }), h('span', { class: 'ctime' })); }
+  function paintClock() {
+    const n = nowServer();
+    const close = S.closesAt ? new Date(S.closesAt) : new Date(n.getFullYear(), n.getMonth(), n.getDate(), 9, 0, 0);
+    const diff = close.getTime() - n.getTime();
+    const cls = diff <= 0 ? 'late' : (diff <= 600000 ? 'soon' : '');
+    document.querySelectorAll('.clock').forEach(el => {
+      el.className = 'clock ' + cls;
+      el.querySelector('.cdate').textContent = n.toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      el.querySelector('.ctime').textContent = pad2(n.getHours()) + ':' + pad2(n.getMinutes());
+    });
+  }
+  function onClosed() {
+    if ((currentView === 'order' || currentView === 'checkout') && !isBeheer()) { notify('Het is ' + closeLabel() + '. Het bestellen is gesloten.', 'err'); S.cart = []; go('home'); }
+    else if (currentView === 'les' || currentView === 'home') go(currentView);
+  }
+  async function refreshState() {
+    const was = S.open;
+    try { const r = await api('getState', {}, { noAuth: true }); setState(r.state); } catch (e) {}
+    paintClock();
+    if (was && !S.open) onClosed(); else if (!was && S.open && currentView === 'home') go('home');
+  }
+  function tick() {
+    const was = S.open;
+    if (S.closesAt && was && nowServer() >= new Date(S.closesAt)) { S.open = false; paintClock(); onClosed(); }
+    else paintClock();
+  }
+  setInterval(tick, 1000);
+  setInterval(() => { if (!document.hidden) refreshState(); }, 300000);
+  function demoBar() {
+    if (!DEMO) return null;
+    const D = window.DemoApi;
+    const setT = async v => { D.setClock(v); await refreshState(); go(currentView); };
+    return h('footer', { class: 'demo' }, h('b', {}, 'TESTMODUS'), ' · geen echte bestellingen. ',
+      h('span', { class: 'tt' }, 'Testuur: ', ['08:00', '08:45', '08:55', '09:05', '09:35'].map(t => h('button', { class: 'btn sec small', onclick: () => setT(t) }, t)),
+        h('input', { type: 'time', 'aria-label': 'Testuur', value: D.getClock().text, onchange: e => { if (e.target.value) setT(e.target.value); } }),
+        h('button', { class: 'btn sec small', onclick: () => setT(null) }, 'Echte tijd')));
+  }
   function frame(content, o) {
     o = o || {}; const s = S.session;
     const head = h('header', { class: 'top' },
-      h('div', { class: 'brand' }, h('small', {}, 'Heli'), h('b', {}, 'Broodjes bestellen')),
-      s ? h('div', { class: 'who' }, h('span', {}, s.name), h('button', { class: 'btn sec small', onclick: () => logout() }, 'Uitloggen')) : null);
+      h('div', { class: 'brand' }, h('img', { class: 'logo', src: 'logo.png', alt: 'Heli Group' }), h('span', { class: 'sub' }, 'Broodjes bestellen')),
+      clockEl(),
+      s ? h('div', { class: 'who' }, h('span', {}, s.name), h('button', { class: 'btn sec small', onclick: () => go('code') }, 'Mijn code'), h('button', { class: 'btn sec small', onclick: () => logout() }, 'Uitloggen')) : h('div', { class: 'who' }));
     return h('div', { class: 'page' }, head,
-      h('main', {}, o.back ? h('button', { class: 'btn sec small back', onclick: o.back }, '← Terug') : null, content),
-      DEMO ? h('footer', { class: 'demo' }, 'TESTMODUS: geen echte bestellingen. De gegevens blijven alleen in deze browser.') : null);
+      h('main', {}, o.back ? h('button', { class: 'btn sec small back', onclick: o.back }, '← Terug') : null, content), demoBar());
   }
-  function mount(n) { $app.replaceChildren(n); window.scrollTo(0, 0); }
+  function mount(n) { $app.replaceChildren(n); paintClock(); window.scrollTo(0, 0); }
   function go(view, arg) { clearTimeout(S.done); currentView = view; const f = VIEWS[view]; Promise.resolve(f(arg)).catch(e => { if (e.message !== 'auth') notify(e.message, 'err'); }); }
   function stepper(val, min, max, onchange, label, big) {
     return h('div', { class: 'stepper' + (big ? ' big' : '') }, label ? h('span', { class: 'lab' }, label) : null,
@@ -134,7 +172,7 @@
   }
   function demoHint() {
     return DEMO ? h('div', { class: 'banner warn' }, h('b', {}, 'Testmodus. Probeer:'),
-      'Davy van de Velde (personeel, code 1234) · Khaled (lesgever, code 123456) · Jeffrey (beheerder, code 1111). Voeg ?open=0 toe aan het webadres om na 9u te testen.') : null;
+      'Davy van de Velde (personeel, code 1234) · Khaled (lesgever, code 123456) · Jeroen De Meyer of Jeffrey (beheerder, code 1111). Onderaan kan je het testuur instellen.') : null;
   }
   // ---------- schermen ----------
   const VIEWS = {};
@@ -180,6 +218,8 @@
       : h('div', { class: 'banner warn' }, h('b', {}, 'Het is ' + hhmm(nowServer().toISOString())),
         isBeheer() ? 'Bestellen is gesloten voor het personeel. Voor jou niet.' : 'Het bestellen is gesloten voor vandaag. Iets vergeten? Bel een broodjes-beheerder.');
     const kids = [h('h1', {}, 'Hallo ' + S.session.name.split(' ')[0]), banner];
+    if (ov && ov.mail.status === 'ready' && S.closesAt && nowServer() >= new Date(Date.parse(S.closesAt) + 30 * 60000))
+      kids.push(h('div', { class: 'banner warn', style: 'border-width:2px;border-color:#B3261E' }, h('b', {}, 'Herinnering: de mail naar de broodjeszaak is nog niet verzonden.'), 'Open hem hieronder en klik op Verzenden.'));
     if (ov) {
       const m = ov.mail;
       kids.push(h('button', { class: 'mailcard', onclick: () => go('mail') },
@@ -198,6 +238,21 @@
     mount(frame(h('section', {}, kids)));
   }
   VIEWS.home = viewHome;
+
+  function viewCode() {
+    let n1 = '', n2 = ''; const back = () => go(S.session.type === 'lesgever' ? 'les' : 'home');
+    mount(frame(h('section', { class: 'login' }, h('h1', {}, 'Mijn code wijzigen'),
+      h('p', { class: 'muted' }, 'Kies een code die je goed onthoudt: ' + (S.session.type === 'lesgever' ? 'minstens 6 cijfers' : 'minstens 4 cijfers') + '. Niet 1234, 4321 of vier keer hetzelfde cijfer.'),
+      h('label', {}, 'Nieuwe code', h('input', { class: 'field', type: 'password', inputmode: 'numeric', autocomplete: 'new-password', maxlength: '8', oninput: e => { n1 = e.target.value; } })),
+      h('label', {}, 'Nieuwe code nog eens', h('input', { class: 'field', type: 'password', inputmode: 'numeric', autocomplete: 'new-password', maxlength: '8', oninput: e => { n2 = e.target.value; } })),
+      h('p', {}, h('button', { class: 'btn big', onclick: e => act(e.currentTarget, async () => {
+        if (n1 !== n2) throw new Error('De twee codes zijn niet gelijk.');
+        await api('changeOwnCode', { newCode: n1 });
+        S.session.code = n1; sessionStorage.setItem('bj_s', JSON.stringify(S.session)); notify('Je code is gewijzigd.', 'ok'); back();
+      }) }, 'Opslaan')),
+      h('p', {}, h('button', { class: 'btn sec', onclick: back }, 'Annuleren')))), { back });
+  }
+  VIEWS.code = viewCode;
 
   // ----- personeel: bestellen -----
   const CATS = [['Belegd broodje', 'Belegd'], ['Warm broodje', 'Warm'], ['Salade', 'Salade'], ['Gebak', 'Gebak'], ['Overig', 'Overig']];
@@ -277,7 +332,7 @@
       g.canCancel ? h('div', { class: 'row2' }, h('small', {}, 'Annuleren kan tot ' + closeLabel()), h('button', { class: 'btn danger small', onclick: e => act(e.currentTarget, async () => { await api('cancelOrder', { ids: g.ids }); notify('Bestelling geannuleerd.', 'ok'); viewMine(); }) }, 'Annuleren')) : null))
       : [h('p', { class: 'muted' }, 'Je hebt vandaag nog niets besteld.')];
     mount(frame(h('div', { class: 'two' },
-      h('section', { style: 'display:flex;flex-direction:column;gap:1rem' }, h('div', { class: 'card', style: 'background:#0B2F55;color:#fff' }, h('span', {}, 'Totaal deze maand'), h('b', { style: 'font-size:2.6rem' }, eur(r.monthTotal)), r.openPrices ? h('small', { style: 'color:#DCE5EF' }, r.openPrices + ' bestelling(en) zonder prijs zijn nog niet meegeteld.') : null), h('h2', {}, 'Vandaag'), today),
+      h('section', { style: 'display:flex;flex-direction:column;gap:1rem' }, h('div', { class: 'card', style: 'background:#001B35;color:#fff' }, h('span', {}, 'Totaal deze maand'), h('b', { style: 'font-size:2.6rem' }, eur(r.monthTotal)), r.openPrices ? h('small', { style: 'color:#DCE5EF' }, r.openPrices + ' bestelling(en) zonder prijs zijn nog niet meegeteld.') : null), h('h2', {}, 'Vandaag'), today),
       h('section', { class: 'card' }, h('h2', {}, 'Eerder deze maand'), r.earlier.length ? r.earlier.map(e => h('div', { class: 'row2' }, h('span', {}, e.date.slice(8) + '/' + e.date.slice(5, 7) + ' · ' + e.text), h('b', {}, e.price == null ? 'prijs volgt' : eur(e.price)))) : h('p', { class: 'muted' }, 'Nog niets deze maand.'))), { back: () => go('home') }));
   }
   VIEWS.mine = viewMine;
@@ -338,6 +393,7 @@
   window.__bj = { S, VIEWS, go, h, api, logout }; // voor tests
   // ---------- start ----------
   (async function init() {
+    await refreshState();
     try {
       const saved = JSON.parse(sessionStorage.getItem('bj_s') || 'null');
       if (saved && saved.id) { S.session = saved; await enter(); return; }
@@ -345,5 +401,5 @@
     viewLogin();
   })();
   // ---------- beheerschermen: zie app-admin.js ----------
-  window.__bjCore = { h, mount, frame, go, api, act, notify, stepper, eur, hhmm, typeLabel, parsePrice, S, VIEWS, isBeheer, closeLabel, logout };
+  window.__bjCore = { h, mount, frame, go, api, act, notify, stepper, eur, hhmm, typeLabel, parsePrice, S, VIEWS, isBeheer, closeLabel, logout, refreshState };
 })();

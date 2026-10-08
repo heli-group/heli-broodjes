@@ -27,6 +27,17 @@
     document.body.append(m);
   }
 
+  function customCodeModal(p, done) {
+    let v = '';
+    const m = h('div', { class: 'modal' }, h('div', { class: 'card' }, h('h2', {}, 'Eigen code voor ' + p.name),
+      h('p', { class: 'muted' }, (p.type === 'lesgever' ? '6 tot 8 cijfers' : '4 tot 8 cijfers') + '. Niet 1234, 4321 of vier keer hetzelfde cijfer.'),
+      h('input', { class: 'field', type: 'text', inputmode: 'numeric', maxlength: '8', autocomplete: 'off', 'aria-label': 'Eigen code', oninput: e => { v = e.target.value; } }),
+      h('div', { class: 'tools', style: 'justify-content:center' },
+        h('button', { class: 'btn', onclick: e => act(e.currentTarget, async () => { await api('resetCode', { targetId: p.id, code: v }); m.remove(); codeModal(p.name, v); if (done) done(); }) }, 'Opslaan'),
+        h('button', { class: 'btn sec', onclick: () => m.remove() }, 'Annuleren'))));
+    document.body.append(m); m.querySelector('input').focus();
+  }
+
   // ----- mail naar de broodjeszaak -----
   VIEWS.mail = async function viewMail(mode) {
     const title = 'Mail naar de broodjeszaak';
@@ -151,13 +162,15 @@
     const rows = r.persons.map(p => h('div', { class: 'row2' }, h('span', {}, h('b', {}, p.name), ' ', h('small', {}, typeLabel(p.type)), ' ', p.actief ? null : h('span', { class: 'chip grey' }, 'Niet actief')),
       h('span', { class: 'tools' },
         h('button', { class: 'btn small', onclick: e => act(e.currentTarget, async () => { const c = await api('resetCode', { targetId: p.id }); codeModal(p.name, c.code); }) }, 'Nieuwe code'),
+        h('button', { class: 'btn sec small', onclick: () => customCodeModal(p) }, 'Eigen code'),
         h('button', { class: 'btn sec small', onclick: e => act(e.currentTarget, async () => { await api('setActive', { targetId: p.id, actief: !p.actief }); VIEWS.codes(q); }) }, p.actief ? 'Zet op niet actief' : 'Zet op actief'))));
-    let nName = '', nType = 'personeel';
+    let nName = '', nType = 'personeel', nCode = '';
     const add = h('div', { class: 'card' }, h('h2', {}, 'Nieuwe persoon (zonder account)'),
       h('input', { class: 'field', placeholder: 'Volledige naam', 'aria-label': 'Naam', oninput: e => { nName = e.target.value; } }),
       h('select', { class: 'field', 'aria-label': 'Soort', onchange: e => { nType = e.target.value; } }, h('option', { value: 'personeel' }, 'Personeel'), h('option', { value: 'lesgever' }, 'Lesgever')),
-      h('button', { class: 'btn', onclick: e => act(e.currentTarget, async () => { const c = await api('addPerson', { name: nName, type: nType }); codeModal(nName.trim(), c.code); VIEWS.codes(q); }) }, 'Toevoegen en code maken'));
-    page('Codes beheren', h('p', { class: 'muted' }, 'Een code wordt maar één keer getoond. Bestaande codes kan niemand opvragen, enkel vervangen.'),
+      h('input', { class: 'field', inputmode: 'numeric', maxlength: '8', placeholder: 'Eigen code (optioneel, anders maken we er een)', 'aria-label': 'Eigen code', oninput: e => { nCode = e.target.value; } }),
+      h('button', { class: 'btn', onclick: e => act(e.currentTarget, async () => { const c = await api('addPerson', { name: nName, type: nType, code: nCode.trim() }); codeModal(nName.trim(), c.code); VIEWS.codes(q); }) }, 'Toevoegen en code maken'));
+    page('Codes beheren', h('p', { class: 'muted' }, 'Een code wordt maar één keer getoond. Bestaande codes kan niemand opvragen, enkel vervangen. Je kan een code laten maken of zelf een code kiezen.'),
       h('div', { class: 'two' }, h('div', { class: 'card' }, search, rows.length ? rows : h('p', { class: 'muted' }, 'Niemand gevonden.')), add));
     const f = document.querySelector('input[type=search]'); if (f && q) { f.focus(); f.setSelectionRange(q.length, q.length); }
   };
