@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Test van de koppeling</title>
+<style>
+body{font-family:"Segoe UI",system-ui,sans-serif;max-width:760px;margin:2rem auto;padding:0 1rem;color:#1B2733}
+input,button,textarea{font:inherit;padding:.6rem .8rem;border-radius:.5rem;border:2px solid #AAB5C2}
+input{width:100%;box-sizing:border-box}
+button{background:#E87722;border:0;color:#0B2F55;font-weight:700;cursor:pointer;margin-top:.8rem}
+pre{background:#F2F5F8;padding:1rem;border-radius:.5rem;white-space:pre-wrap;word-break:break-word}
+.ok{color:#14573A;font-weight:700}.err{color:#B3261E;font-weight:700}
+</style>
+</head>
+<body>
+<h1>Test van de koppeling met de flow</h1>
+<p>Plak hieronder het webadres van je test-flow en klik op Testen. De flow moet antwoorden met <code>{"ok":true,"pong":true}</code> en de header <code>Access-Control-Allow-Origin: *</code>.</p>
+<label>Webadres van de flow<input id="url" placeholder="https://prod-xx.westeurope.logic.azure.com/workflows/..."></label>
+<button id="go">Testen</button>
+<h2>Resultaat</h2>
+<p id="status">Nog niet getest.</p>
+<pre id="out"></pre>
+<script>
+document.getElementById('go').onclick = async () => {
+  const url = document.getElementById('url').value.trim();
+  const st = document.getElementById('status'), out = document.getElementById('out');
+  out.textContent = ''; st.className = ''; st.textContent = 'Bezig…';
+  try {
+    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ action: 'ping' }) });
+    const text = await res.text();
+    st.className = res.ok ? 'ok' : 'err';
+    st.textContent = 'Antwoord ontvangen: HTTP ' + res.status + (res.ok ? '. De koppeling werkt.' : '.');
+    out.textContent = text;
+  } catch (e) {
+    st.className = 'err';
+    st.textContent = 'Geen antwoord gelezen. Waarschijnlijk ontbreekt de header Access-Control-Allow-Origin in het Response-blok van de flow, of het webadres klopt niet.';
+    out.textContent = String(e);
+  }
+};
+</script>
+</body>
+</html>
