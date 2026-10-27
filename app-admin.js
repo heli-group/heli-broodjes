@@ -2,7 +2,7 @@
   'use strict';
   const C = window.__bjCore;
   const { h, mount, frame, go, api, act, notify, stepper, eur, hhmm, typeLabel, parsePrice, S, VIEWS } = C;
-  const page = (title, ...kids) => mount(frame(h('section', {}, h('h1', {}, title), ...kids), { back: () => go('home') }));
+  const page = (title, ...kids) => { if (!S.session) return; mount(frame(h('section', {}, h('h1', {}, title), ...kids), { back: () => go('home') })); };
   const loading = title => page(title, h('p', { class: 'muted' }, 'Even laden…'));
   const dateShort = d => d.slice(8) + '/' + d.slice(5, 7);
 
@@ -19,6 +19,13 @@
       }, 250);
     } });
     return h('div', {}, input, res);
+  }
+  function bulkModal(items) {
+    const m = h('div', { class: 'modal' }, h('div', { class: 'card printarea', style: 'text-align:left;max-width:640px;max-height:90vh;overflow:auto' }, h('h2', {}, 'Nieuwe codes (' + items.length + ')'),
+      h('p', { class: 'muted' }, 'Deze lijst wordt maar één keer getoond. Druk hem af en geef elke code persoonlijk door. Bewaar de lijst niet.'),
+      h('table', { class: 'codes' }, items.map(i => h('tr', {}, h('td', {}, i.name), h('td', { class: 'bigmono' }, i.code)))),
+      h('div', { class: 'tools noprint' }, h('button', { class: 'btn', onclick: () => { if (window.print) window.print(); } }, 'Afdrukken'), h('button', { class: 'btn sec', onclick: () => m.remove() }, 'Sluiten'))));
+    document.body.append(m);
   }
   function codeModal(name, code) {
     const m = h('div', { class: 'modal' }, h('div', { class: 'card' }, h('h2', {}, 'Nieuwe code voor ' + name), h('div', { class: 'bigcode' }, code),
@@ -38,6 +45,106 @@
     document.body.append(m); m.querySelector('input').focus();
   }
 
+  const CATS = ['Belegd broodje', 'Warm broodje', 'Salade', 'Gebak', 'Overig'];
+  const check = (label, checked, onchange, disabled) => h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: checked ? true : null, disabled: disabled ? true : null, onchange: e => onchange(e.target.checked) }), label);
+  async function reloadMenu() { const m = await api('getMenu'); S.menu = m.menu; S.settings = m.settings; S.places = m.places; }
+
+  function editMenuItem(item, done) {
+    const F = item ? { id: item.id, name: item.name, category: item.category, price: item.price == null ? '' : String(item.price).replace('.', ','), fitness: item.fitness, lesgevers: item.lesgevers, active: item.active }
+      : { id: null, name: '', category: 'Belegd broodje', price: '', fitness: true, lesgevers: false, active: true };
+    const fixed = item && item.openPrice;
+    const m = h('div', { class: 'modal' });
+    const body = () => {
+      m.replaceChildren(h('div', { class: 'card', style: 'text-align:left' }, h('h2', {}, item ? 'Product wijzigen' : 'Nieuw product'),
+        h('label', {}, 'Naam', h('input', { class: 'field', value: F.name, oninput: e => { F.name = e.target.value; } })),
+        h('label', {}, 'Categorie', h('select', { class: 'field', onchange: e => { F.category = e.target.value; F.fitness = F.category === 'Belegd broodje'; body(); } }, CATS.map(c => h('option', { value: c, selected: c === F.category ? true : null }, c)))),
+        h('label', {}, 'Prijs (€)', h('input', { class: 'field', inputmode: 'decimal', value: fixed ? '' : F.price, disabled: fixed ? true : null, placeholder: fixed ? 'Wisselt, wordt ingevuld bij Maandproducten of Prijzen invullen' : 'bv. 5,50', oninput: e => { F.price = e.target.value; } })),
+        F.category === 'Belegd broodje' ? check('Je kan wit, bruin of fitness kiezen (fitness kost extra)', F.fitness, v => { F.fitness = v; }) : null,
+        check('Ook beschikbaar voor lesgevers (zij betalen de vaste prijs)', F.lesgevers, v => { F.lesgevers = v; }),
+        check('Actief (zichtbaar voor iedereen)', F.active, v => { F.active = v; }),
+        h('p', { class: 'muted' }, 'Een nieuwe prijs geldt vanaf nu. Bestaande bestellingen behouden hun prijs.'),
+        h('div', { class: 'tools', style: 'justify-content:center' },
+          h('button', { class: 'btn', onclick: e => act(e.currentTarget, async () => { await api('saveMenuItem', F); await reloadMenu(); m.remove(); notify('Opgeslagen.', 'ok'); if (done) done(); }) }, 'Opslaan'),
+          h('button', { class: 'btn sec', onclick: () => m.remove() }, 'Annuleren'))));
+    };
+    body(); document.body.append(m);
+  }
+  VIEWS.menu = async function viewMenu() {
+    loading('Menu en prijzen');
+    const r = await api('listMenuAdmin');
+    const blocks = CATS.map(c => {
+      const items = r.items.filter(i => i.category === c).sort((a, b) => a.order - b.order);
+      if (!items.length) return null;
+      return h('div', { class: 'card' }, h('h2', {}, c), items.map(i => h('div', { class: 'row2' },
+        h('span', {}, h('b', {}, i.name), ' ', i.active ? null : h('span', { class: 'chip grey' }, 'Niet actief'), ' ', i.lesgevers ? h('span', { class: 'chip ok' }, 'Lesgevers') : null, ' ', i.monthly ? h('span', { class: 'chip warn' }, 'Maandproduct') : null),
+        h('span', { class: 'tools' }, h('b', {}, i.openPrice ? 'wisselt' : (i.price == null ? '—' : eur(i.price))), h('button', { class: 'btn sec small', onclick: () => editMenuItem(i, () => VIEWS.menu()) }, 'Wijzig')))));
+    });
+    page('Menu en prijzen', h('p', { class: 'muted' }, 'Hier beheer je de producten en hun prijzen. Een product dat je niet meer aanbiedt, zet je op niet actief. Verwijderen kan niet, zodat oude bestellingen kloppen. De prijs van het Broodje en de Salade van de maand vul je in bij Maandproducten invullen.'),
+      h('p', {}, h('button', { class: 'btn', onclick: () => editMenuItem(null, () => VIEWS.menu()) }, '+ Nieuw product')), ...blocks);
+  };
+  VIEWS.instellingen = async function viewInstellingen() {
+    loading('Instellingen');
+    const r = await api('getSettings'); const v = Object.assign({}, r.settings); const edit = {};
+    const inp = (k, label, hint, kind) => h('label', {}, label, h('input', { class: 'field', inputmode: kind === 'num' ? 'decimal' : null, value: kind === 'num' ? String(v[k]).replace('.', ',') : (v[k] || ''), placeholder: hint, oninput: e => { edit[k] = e.target.value; } }));
+    page('Instellingen', h('div', { class: 'two' },
+      h('div', { class: 'card' }, h('h2', {}, 'E-mailadressen'),
+        inp('mailBroodjeszaak', 'Broodjeszaak (hier gaat de bestelling naartoe)', 'naam@broodjeszaak.be'),
+        inp('mailHR', 'HR (maandoverzicht)', 'naam@heli.be'),
+        inp('mailBeheergroep', 'Broodjes-beheergroep (meldingen)', 'groep@heli.be'),
+        inp('mailITSupport', 'IT-support (altijd in kopie)', 'ITSupport@heli.be'),
+        h('p', { class: 'muted' }, 'Tijdens de proefweek zet je bij "Broodjeszaak" je eigen adres. Zo ziet alleen jij de mail.')),
+      h('div', { class: 'card' }, h('h2', {}, 'Prijzen en uur'),
+        inp('tokenPrice', 'Prijs per jeton (€)', '0,80', 'num'), inp('fitnessSurcharge', 'Toeslag per fitnessbroodje (€)', '0,50', 'num'),
+        inp('lesgeverPrijs', 'Vaste prijs per broodje voor lesgevers (€)', '3,60', 'num'),
+        inp('closeTime', 'Uur waarop het bestellen sluit', '09:00'))),
+      h('p', {}, h('button', { class: 'btn big', onclick: e => act(e.currentTarget, async () => {
+        if (!Object.keys(edit).length) { notify('Er is niets gewijzigd.', 'err'); return; }
+        await api('saveSettings', { values: edit }); await reloadMenu(); notify('Opgeslagen.', 'ok'); VIEWS.instellingen();
+      }) }, 'Opslaan')));
+  };
+
+  // ----- assortiment voor een vergadering -----
+  const KINDS = ['Wit', 'Bruin', 'Wraps', 'Vegetarisch', 'Zonder groenten', 'Zonder ei', 'Zonder vis', 'Glutenvrij'];
+  const kindsLabel = ks => (ks || []).map(k => k.name + (k.count ? ' (' + k.count + ')' : '')).join(', ') || 'naar keuze van de broodjeszaak';
+  const dateNL = d => d.slice(8) + '/' + d.slice(5, 7) + '/' + d.slice(0, 4);
+  VIEWS.assortiment = async function viewAssortiment() {
+    const A = S.assort || (S.assort = { date: C.todayISO(), place: '', time: '', forWho: '', persons: 10, per: 1, kinds: {}, remark: '' });
+    const places = [...new Set([...(S.places.personeel || []), ...(S.places.lesgevers || [])])];
+    let list = []; try { list = (await api('listAssortments')).items; } catch (e) { if (e.message === 'auth') return; }
+    const refresh = () => VIEWS.assortiment();
+    const total = Math.ceil(A.persons * A.per);
+    const maxD = new Date(C.nowServer().getTime() + 60 * 86400000); const maxS = maxD.getFullYear() + '-' + String(maxD.getMonth() + 1).padStart(2, '0') + '-' + String(maxD.getDate()).padStart(2, '0');
+    const selected = Object.keys(A.kinds);
+    const summaryKinds = kindsLabel(selected.map(n => ({ name: n, count: A.kinds[n] })));
+    const form = h('div', { class: 'card' },
+      h('div', { class: 'two' },
+        h('label', {}, 'Voor welke dag?', h('input', { class: 'field', type: 'date', min: C.todayISO(), max: maxS, value: A.date, onchange: e => { if (e.target.value) { A.date = e.target.value; refresh(); } } })),
+        h('label', {}, 'Leverplaats', h('select', { class: 'field', onchange: e => { A.place = e.target.value; refresh(); } }, h('option', { value: '' }, 'Kies de plaats'), places.map(p => h('option', { value: p, selected: p === A.place ? true : null }, p))))),
+      h('div', { class: 'two' },
+        h('label', {}, 'Uur (optioneel)', h('input', { class: 'field', type: 'time', value: A.time, onchange: e => { A.time = e.target.value; } })),
+        h('label', {}, 'Voor welke vergadering of wie?', h('input', { class: 'field', value: A.forWho, placeholder: 'bv. Directievergadering', oninput: e => { A.forWho = e.target.value; } }))),
+      h('h2', {}, 'Hoeveel personen?'),
+      h('div', { style: 'text-align:center' }, stepper(A.persons, 1, 200, v => { A.persons = v; refresh(); }, null, true)),
+      h('div', { class: 'chips', style: 'justify-content:center' }, [5, 8, 10, 12, 15, 20, 25, 30].map(n => h('button', { class: 'chipbtn' + (A.persons === n ? ' on' : ''), onclick: () => { A.persons = n; refresh(); } }, String(n)))),
+      h('h2', {}, 'Hoeveel broodjes per persoon?'),
+      h('div', { class: 'seg' }, [[1, '1'], [1.5, '1,5'], [2, '2']].map(([v, l]) => h('button', { class: A.per === v ? 'on' : '', onclick: () => { A.per = v; refresh(); } }, l))),
+      h('h2', {}, 'Waaruit moet het assortiment bestaan?'),
+      h('p', { class: 'muted' }, 'Tik aan wat erbij hoort. Je kan bij elke keuze een aantal opgeven. Zonder aantal beslist de broodjeszaak.'),
+      h('div', { class: 'chips' }, KINDS.map(k => h('button', { class: 'chipbtn' + (A.kinds[k] != null ? ' on' : ''), onclick: () => { if (A.kinds[k] == null) A.kinds[k] = 0; else delete A.kinds[k]; refresh(); } }, k))),
+      selected.length ? h('div', {}, selected.map(k => h('div', { class: 'row2' }, h('b', {}, k), h('span', { class: 'tools' }, 'Hoeveel? ', stepper(A.kinds[k], 0, Math.max(total, 1), v => { A.kinds[k] = v; refresh(); }), A.kinds[k] === 0 ? h('small', {}, 'naar keuze') : null)))) : null,
+      h('label', {}, 'Andere wensen (optioneel)', h('input', { class: 'field', value: A.remark, placeholder: 'bv. 2 broodjes zonder boter', oninput: e => { A.remark = e.target.value; } })),
+      h('div', { class: 'banner ok' }, h('b', {}, total + ' broodjes'), A.persons + ' personen × ' + String(A.per).replace('.', ',') + ' · ' + summaryKinds),
+      A.date === C.todayISO() && !S.open ? h('div', { class: 'banner warn' }, 'Het is na ' + C.closeLabel() + '. Je belt de broodjeszaak zelf. Dit komt bij "Nog door te bellen".') : null,
+      h('button', { class: 'btn big', disabled: !A.place, onclick: e => act(e.currentTarget, async () => {
+        const r = await api('placeAssortment', { date: A.date, place: A.place, time: A.time, forWho: A.forWho, persons: A.persons, perPerson: A.per, kinds: selected.map(n => ({ name: n, count: A.kinds[n] || null })), remark: A.remark });
+        notify('Assortiment besteld: ' + r.total + ' broodjes.', 'ok'); S.assort = null; refresh();
+      }) }, 'Assortiment bestellen'));
+    const upcoming = h('div', { class: 'card' }, h('h2', {}, 'Geplande assortimenten'), list.length ? list.map(it => h('div', { class: 'row2' },
+      h('span', {}, h('b', {}, dateNL(it.date) + ' · ' + it.place + (it.time ? ' om ' + it.time : '')), h('br'), it.forWho + ' · ' + it.persons + ' personen · ' + it.total + ' broodjes', h('br'), h('small', {}, kindsLabel(it.kinds) + (it.remark ? ' · ' + it.remark : '') + (it.sent ? ' · al verstuurd' : ''))),
+      h('button', { class: 'btn danger small', disabled: it.sent ? true : null, onclick: e => act(e.currentTarget, async () => { await api('cancelAssortment', { ref: it.ref }); notify('Geannuleerd.', 'ok'); refresh(); }) }, 'Annuleren'))) : h('p', { class: 'muted' }, 'Geen assortimenten gepland.'));
+    page('Assortiment voor een vergadering', h('div', { class: 'two' }, form, upcoming));
+  };
+
   // ----- mail naar de broodjeszaak -----
   VIEWS.mail = async function viewMail(mode) {
     const title = 'Mail naar de broodjeszaak';
@@ -56,7 +163,7 @@
       await api('sendMail', { mode: r.mode }); notify('De mail is verzonden.', 'ok'); VIEWS.mail(sent ? r.mode : 'all');
     }) }, label);
     page(title, banner, h('div', { class: 'two' },
-      h('div', { class: 'card' }, h('div', { class: 'mailmeta' }, 'Onderwerp: ' + r.subject + ' · Aan: ' + r.to), frameEl),
+      h('div', { class: 'card' }, h('div', { class: 'mailmeta' }, 'Onderwerp: ' + r.subject + ' · Aan: ' + r.to), r.toMissing ? h('div', { class: 'banner warn' }, 'Er is nog geen e-mailadres van de broodjeszaak ingevuld. Een IT-beheerder doet dat bij Instellingen.') : null, frameEl),
       h('div', { style: 'display:flex;flex-direction:column;gap:1rem' }, toggle,
         h('div', { class: 'card' }, h('h2', {}, 'Samenvatting'), h('div', { class: 'row2' }, 'Stuks', h('b', {}, r.counts.stuks)), h('div', { class: 'row2' }, 'Bestelregels', h('b', {}, r.counts.regels)), h('div', { class: 'row2' }, 'Plaatsen', h('b', {}, r.counts.plaatsen))),
         h('button', { class: 'btn sec', onclick: () => go('toevoegen') }, 'Bestelling toevoegen'), send,
@@ -119,7 +226,7 @@
     const items = T.type === 'lesgever' ? S.menu.filter(m => m.lesgevers) : S.menu.filter(m => m.price != null || m.openPrice);
     const item = items.find(m => m.id === T.menuId);
     const places = T.type === 'lesgever' ? S.places.lesgevers : S.places.personeel;
-    const soorten = T.type === 'lesgever' ? ['wit', 'bruin'] : (item && item.fitness ? ['wit', 'bruin', 'fitness'] : []);
+    const soorten = T.type === 'lesgever' ? (item && item.category === 'Belegd broodje' ? ['wit', 'bruin'] : []) : (item && item.fitness ? ['wit', 'bruin', 'fitness'] : []);
     const refresh = () => VIEWS.toevoegen();
     const sel = (opts, cur, set, ph) => h('select', { class: 'field', onchange: e => { set(e.target.value); refresh(); } }, h('option', { value: '' }, ph), opts.map(o => h('option', { value: o.v, selected: o.v === cur ? true : null }, o.t)));
     const form = h('div', { class: 'card' },
@@ -129,9 +236,10 @@
       h('label', {}, 'Product', sel(items.map(m => ({ v: m.id, t: m.name })), T.menuId, v => { T.menuId = v; T.soort = 'wit'; }, 'Kies het product')),
       soorten.length ? h('div', { class: 'seg' }, soorten.map(s => h('button', { class: T.soort === s ? 'on' : '', onclick: () => { T.soort = s; refresh(); } }, s[0].toUpperCase() + s.slice(1)))) : null,
       h('div', { class: 'row2' }, h('b', {}, 'Aantal'), stepper(T.qty, 1, 12, v => { T.qty = v; refresh(); })),
-      h('input', { class: 'field', placeholder: 'Opmerking (optioneel)', value: T.remark, 'aria-label': 'Opmerking', oninput: e => { T.remark = e.target.value; } }),
+      h('input', { class: 'field', placeholder: item && item.other ? 'Wat moet er besteld worden? (verplicht)' : 'Opmerking (optioneel)', value: T.remark, 'aria-label': 'Opmerking', oninput: e => { T.remark = e.target.value; const sb = document.getElementById('saveLate'); if (sb) sb.disabled = !(T.person && T.place && T.menuId) || !!(item && item.other && !T.remark.trim()); } }),
+      item && item.other ? h('div', { class: 'banner ok' }, 'De prijs per stuk vul je nadien in bij "Prijzen invullen".') : null,
       h('div', { class: 'banner warn' }, 'Je belt de broodjeszaak zelf. Dit wordt geregistreerd als "Telefonisch doorgegeven", met jouw naam en het uur.'),
-      h('button', { class: 'btn big', disabled: !(T.person && T.place && T.menuId), onclick: e => act(e.currentTarget, async () => {
+      h('button', { id: 'saveLate', class: 'btn big', disabled: !(T.person && T.place && T.menuId) || (item && item.other && !T.remark.trim()), onclick: e => act(e.currentTarget, async () => {
         await api('addLateOrder', { targetId: T.person.id, place: T.place, date: new Date().toISOString().slice(0, 10), lines: [{ menuId: T.menuId, soort: soorten.length ? T.soort : '', qty: T.qty, remark: T.remark.trim() }] });
         notify('Geregistreerd voor ' + T.person.name + '.', 'ok'); T.menuId = ''; T.qty = 1; T.remark = ''; refresh();
       }) }, 'Opslaan en registreren'));
@@ -159,7 +267,7 @@
     const r = await api('listPersons', { q });
     let timer;
     const search = h('input', { class: 'field', type: 'search', placeholder: 'Zoek een naam', value: q, 'aria-label': 'Zoek een naam', oninput: e => { clearTimeout(timer); const v = e.target.value; timer = setTimeout(() => VIEWS.codes(v), 400); } });
-    const rows = r.persons.map(p => h('div', { class: 'row2' }, h('span', {}, h('b', {}, p.name), ' ', h('small', {}, typeLabel(p.type)), ' ', p.actief ? null : h('span', { class: 'chip grey' }, 'Niet actief')),
+    const rows = r.persons.map(p => h('div', { class: 'row2' }, h('span', {}, h('b', {}, p.name), ' ', h('small', {}, typeLabel(p.type)), ' ', p.actief ? null : h('span', { class: 'chip grey' }, 'Niet actief'), ' ', p.hasCode ? null : h('span', { class: 'chip warn' }, 'Nog geen code')),
       h('span', { class: 'tools' },
         h('button', { class: 'btn small', onclick: e => act(e.currentTarget, async () => { const c = await api('resetCode', { targetId: p.id }); codeModal(p.name, c.code); }) }, 'Nieuwe code'),
         h('button', { class: 'btn sec small', onclick: () => customCodeModal(p) }, 'Eigen code'),
@@ -171,6 +279,7 @@
       h('input', { class: 'field', inputmode: 'numeric', maxlength: '8', placeholder: 'Eigen code (optioneel, anders maken we er een)', 'aria-label': 'Eigen code', oninput: e => { nCode = e.target.value; } }),
       h('button', { class: 'btn', onclick: e => act(e.currentTarget, async () => { const c = await api('addPerson', { name: nName, type: nType, code: nCode.trim() }); codeModal(nName.trim(), c.code); VIEWS.codes(q); }) }, 'Toevoegen en code maken'));
     page('Codes beheren', h('p', { class: 'muted' }, 'Een code wordt maar één keer getoond. Bestaande codes kan niemand opvragen, enkel vervangen. Je kan een code laten maken of zelf een code kiezen.'),
+      r.persons.some(p => p.actief && !p.hasCode) ? h('p', {}, h('button', { class: 'btn', onclick: e => act(e.currentTarget, async () => { const x = await api('bulkCodes'); bulkModal(x.items); VIEWS.codes(q); }) }, 'Codes maken voor iedereen zonder code')) : null,
       h('div', { class: 'two' }, h('div', { class: 'card' }, search, rows.length ? rows : h('p', { class: 'muted' }, 'Niemand gevonden.')), add));
     const f = document.querySelector('input[type=search]'); if (f && q) { f.focus(); f.setSelectionRange(q.length, q.length); }
   };

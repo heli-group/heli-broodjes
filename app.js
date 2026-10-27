@@ -44,6 +44,8 @@
   }
   const closeLabel = () => S.closesAt ? hhmm(S.closesAt).replace(':00', 'u').replace(/^0/, '') : '9u';
   const isBeheer = () => !!(S.session && S.session.beheer);
+  const isAdmin = () => !!(S.session && S.session.admin);
+  function toStart() { if (S.session) go(S.session.type === 'lesgever' ? 'les' : 'home'); else { S.login.step = 'name'; S.login.err = ''; viewLogin(); } }
   const parsePrice = v => { const n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? null : n; };
 
   function notify(msg, type) {
@@ -113,7 +115,7 @@
   function frame(content, o) {
     o = o || {}; const s = S.session;
     const head = h('header', { class: 'top' },
-      h('div', { class: 'brand' }, h('img', { class: 'logo', src: 'logo.png', alt: 'Heli Group' }), h('span', { class: 'sub' }, 'Broodjes bestellen')),
+      h('a', { class: 'brand', href: './', title: 'Naar de startpagina', 'aria-label': 'Naar de startpagina', onclick: e => { e.preventDefault(); toStart(); } }, h('img', { class: 'logo', src: 'logo.png', alt: 'Heli Group' }), h('span', { class: 'sub' }, 'Broodjes bestellen')),
       clockEl(),
       s ? h('div', { class: 'who' }, h('span', {}, s.name), h('button', { class: 'btn sec small', onclick: () => go('code') }, 'Mijn code'), h('button', { class: 'btn sec small', onclick: () => logout() }, 'Uitloggen')) : h('div', { class: 'who' }));
     return h('div', { class: 'page' }, head,
@@ -233,7 +235,8 @@
       const t = (label, view, n) => h('button', { class: 'tile', onclick: () => go(view) }, n ? h('span', { class: 'badge' }, n) : null, label);
       kids.push(h('div', { class: 'section-label' }, 'Beheer'),
         h('div', { class: 'tiles' }, t('Jeton uitgeven', 'jeton'), t('Maandproducten invullen', 'maand', ov.counts.monthProducts), t('Prijzen invullen', 'prijzen', ov.counts.openPrices),
-          t('Nog door te bellen', 'bellen', ov.counts.toCall), t('Bestelling toevoegen na 9u', 'toevoegen'), t('Codes beheren', 'codes')));
+          t('Nog door te bellen', 'bellen', ov.counts.toCall), t('Bestelling toevoegen na 9u', 'toevoegen'), t('Assortiment vergadering', 'assortiment'), t('Codes beheren', 'codes', ov.counts.noCode)));
+      if (isAdmin()) kids.push(h('div', { class: 'section-label' }, 'Alleen voor IT'), h('div', { class: 'tiles' }, t('Menu en prijzen', 'menu'), t('Instellingen', 'instellingen')));
     }
     mount(frame(h('section', {}, kids)));
   }
@@ -401,5 +404,5 @@
     viewLogin();
   })();
   // ---------- beheerschermen: zie app-admin.js ----------
-  window.__bjCore = { h, mount, frame, go, api, act, notify, stepper, eur, hhmm, typeLabel, parsePrice, S, VIEWS, isBeheer, closeLabel, logout, refreshState };
+  window.__bjCore = { h, mount, frame, go, api, act, notify, stepper, eur, hhmm, typeLabel, parsePrice, S, VIEWS, isBeheer, isAdmin, closeLabel, logout, refreshState, todayISO, nowServer };
 })();
