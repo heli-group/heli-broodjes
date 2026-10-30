@@ -8,7 +8,8 @@
 //  Onderaan de pagina kan je het testuur instellen om "voor 9u" en "na 9u" te zien.
 // ============================================================
 (function () {
-  const KEY = 'bj_demo_v4';
+  const KEY = 'bj_demo_v5';
+  const START = '582913'; // startcode in de testmodus
   const CLK = 'bj_demo_clock';
   const pad = n => String(n).padStart(2, '0');
   function simNow() {
@@ -54,8 +55,9 @@
         { id: 'p10', name: 'Ian', type: 'personeel', beheer: true, actief: true, code: '1111' },
         { id: 'p11', name: 'Lindsay', type: 'personeel', beheer: true, actief: true, code: '1111' },
         { id: 'p12', name: 'Jeroen De Meyer', type: 'personeel', beheer: true, admin: true, actief: true, code: '1111' },
-        { id: 'p13', name: 'Marie Peeters', type: 'personeel', beheer: false, actief: true, code: '' },
-        { id: 'p14', name: 'Tom Vermeulen', type: 'personeel', beheer: false, actief: true, code: '' }
+        { id: 'p13', name: 'Marie Peeters', type: 'personeel', beheer: false, actief: true, code: START, mustChange: true },
+        { id: 'p14', name: 'Tom Vermeulen', type: 'personeel', beheer: false, actief: true, code: '' },
+        { id: 'p15', name: 'Lotte Lesgever', type: 'lesgever', beheer: false, actief: true, code: START, mustChange: true }
       ].map(p => Object.assign({ tries: 0, lockUntil: 0, admin: false }, p)),
       menu: MENU.map((m, i) => ({
         id: 'm' + (i + 1), name: m[0], category: m[1], price: m[2], order: i,
@@ -97,7 +99,7 @@
     for (let t = 0; t < 200; t++) { let c = ''; for (let i = 0; i < len; i++) c += Math.floor(Math.random() * 10); if (!codeError(type, c)) return c; }
     return type === 'lesgever' ? '482913' : '4829';
   }
-  const pub = p => ({ id: p.id, name: p.name, type: p.type, beheer: p.beheer || !!p.admin, admin: !!p.admin });
+  const pub = p => ({ id: p.id, name: p.name, type: p.type, beheer: p.beheer || !!p.admin, admin: !!p.admin, mustChange: !!p.mustChange });
   function menuFor(p) {
     let items = db.menu.filter(m => m.active !== false);
     if (!p.beheer) {
@@ -359,7 +361,7 @@
     listPersons(b, me) {
       if (!me.beheer) return fail('Geen toegang.', 'auth');
       const q = norm(b.q);
-      return { ok: true, persons: db.persons.filter(p => !q || norm(p.name).includes(q)).slice(0, 60).map(p => ({ id: p.id, name: p.name, type: p.type, actief: p.actief, hasCode: !!p.code })) };
+      return { ok: true, persons: db.persons.filter(p => !q || norm(p.name).includes(q)).slice(0, 60).map(p => ({ id: p.id, name: p.name, type: p.type, actief: p.actief, hasCode: !!p.code, mustChange: !!p.mustChange })) };
     },
     resetCode(b, me) {
       if (!me.beheer) return fail('Geen toegang.', 'auth');
@@ -371,7 +373,9 @@
     },
     changeOwnCode(b, me) {
       const e = codeError(me.type, b.newCode); if (e) return fail(e);
-      me.code = String(b.newCode); me.tries = 0; save(); return { ok: true };
+      if (String(b.newCode) === START) return fail('Kies een eigen code. De startcode mag niet.');
+      if (String(b.newCode) === me.code) return fail('Kies een andere code dan je huidige code.');
+      me.code = String(b.newCode); me.mustChange = false; me.tries = 0; save(); return { ok: true };
     },
     bulkCodes(b, me) {
       if (!me.beheer) return fail('Geen toegang.', 'auth');
@@ -399,6 +403,7 @@
       if (PUBLIC.includes(body.action)) return fn(body);
       const me = who(body.auth);
       if (!me) return fail('Je bent niet ingelogd.', 'auth');
+      if (me.mustChange && body.action !== 'changeOwnCode') return fail('Kies eerst een eigen code.', 'mustchange');
       return fn(body, me);
     },
     reset() { localStorage.removeItem(KEY); },

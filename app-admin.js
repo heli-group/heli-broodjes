@@ -326,7 +326,7 @@
     const r = await api('listPersons', { q });
     let timer;
     const search = h('input', { class: 'field', type: 'search', placeholder: 'Zoek een naam', value: q, 'aria-label': 'Zoek een naam', oninput: e => { clearTimeout(timer); const v = e.target.value; timer = setTimeout(() => VIEWS.codes(v), 400); } });
-    const rows = r.persons.map(p => h('div', { class: 'row2' }, h('span', {}, h('b', {}, p.name), ' ', h('small', {}, typeLabel(p.type)), ' ', p.actief ? null : h('span', { class: 'chip grey' }, 'Niet actief'), ' ', p.hasCode ? null : h('span', { class: 'chip warn' }, 'Nog geen code')),
+    const rows = r.persons.map(p => h('div', { class: 'row2' }, h('span', {}, h('b', {}, p.name), ' ', h('small', {}, typeLabel(p.type)), ' ', p.actief ? null : h('span', { class: 'chip grey' }, 'Niet actief'), ' ', p.hasCode ? null : h('span', { class: 'chip warn' }, 'Nog geen code'), ' ', p.mustChange ? h('span', { class: 'chip grey' }, 'Nog startcode') : null),
       h('span', { class: 'tools' },
         h('button', { class: 'btn small', onclick: e => act(e.currentTarget, async () => { const c = await api('resetCode', { targetId: p.id }); codeModal(p.name, c.code); }) }, 'Nieuwe code'),
         h('button', { class: 'btn sec small', onclick: () => customCodeModal(p) }, 'Eigen code'),
@@ -337,7 +337,7 @@
       h('select', { class: 'field', 'aria-label': 'Soort', onchange: e => { nType = e.target.value; } }, h('option', { value: 'personeel' }, 'Personeel'), h('option', { value: 'lesgever' }, 'Lesgever')),
       h('input', { class: 'field', inputmode: 'numeric', maxlength: '8', placeholder: 'Eigen code (optioneel, anders maken we er een)', 'aria-label': 'Eigen code', oninput: e => { nCode = e.target.value; } }),
       h('button', { class: 'btn', onclick: e => act(e.currentTarget, async () => { const c = await api('addPerson', { name: nName, type: nType, code: nCode.trim() }); codeModal(nName.trim(), c.code); VIEWS.codes(q); }) }, 'Toevoegen en code maken'));
-    page('Codes beheren', h('p', { class: 'muted' }, 'Een code wordt maar één keer getoond. Bestaande codes kan niemand opvragen, enkel vervangen. Je kan een code laten maken of zelf een code kiezen.'),
+    page('Codes beheren', h('p', { class: 'muted' }, 'Een code wordt maar één keer getoond. Bestaande codes kan niemand opvragen, enkel vervangen. Je kan een code laten maken of zelf een code kiezen. "Nog startcode" = die persoon moet bij de eerste keer aanmelden nog een eigen code kiezen.'),
       r.persons.some(p => p.actief && !p.hasCode) ? h('p', {}, h('button', { class: 'btn', onclick: e => act(e.currentTarget, async () => { const x = await api('bulkCodes'); bulkModal(x.items); VIEWS.codes(q); }) }, 'Codes maken voor iedereen zonder code')) : null,
       h('div', { class: 'two' }, h('div', { class: 'card' }, search, rows.length ? rows : h('p', { class: 'muted' }, 'Niemand gevonden.')), add));
     const f = document.querySelector('input[type=search]'); if (f && q) { f.focus(); f.setSelectionRange(q.length, q.length); }

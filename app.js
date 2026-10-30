@@ -66,6 +66,7 @@
     catch (e) { throw new Error('Geen verbinding met de server. Probeer opnieuw.'); }
     if (!r || r.ok === false) {
       if (r && r.error === 'auth' && S.session && action !== 'login') { logout('Je bent uitgelogd. Log opnieuw in.'); throw new Error('auth'); }
+      if (r && r.error === 'mustchange' && S.session) { S.session.mustChange = true; sessionStorage.setItem('bj_s', JSON.stringify(S.session)); go('code'); throw new Error('auth'); }
       throw new Error((r && r.message) || 'Er ging iets mis.');
     }
     return r;
@@ -117,7 +118,7 @@
     const head = h('header', { class: 'top' },
       h('a', { class: 'brand', href: './', title: 'Naar de startpagina', 'aria-label': 'Naar de startpagina', onclick: e => { e.preventDefault(); toStart(); } }, h('img', { class: 'logo', src: 'logo.png', alt: 'Heli Group' }), h('span', { class: 'sub' }, 'Broodjes bestellen')),
       clockEl(),
-      s ? h('div', { class: 'who' }, h('span', {}, s.name), h('button', { class: 'btn sec small', onclick: () => go('code') }, 'Mijn code'), h('button', { class: 'btn sec small', onclick: () => logout() }, 'Uitloggen')) : h('div', { class: 'who' }));
+      s ? h('div', { class: 'who' }, h('span', {}, s.name), s.mustChange ? null : h('button', { class: 'btn sec small', onclick: () => go('code') }, 'Mijn code'), h('button', { class: 'btn sec small', onclick: () => logout() }, 'Uitloggen')) : h('div', { class: 'who' }));
     return h('div', { class: 'page' }, head,
       h('main', {}, o.back ? h('button', { class: 'btn sec small back', onclick: o.back }, '← Terug') : null, content), demoBar());
   }
@@ -169,12 +170,14 @@
       const r = await api('login', { personId: L.picked.id, code: L.code }, { noAuth: true });
       S.session = Object.assign({}, r.person, { code: L.code });
       sessionStorage.setItem('bj_s', JSON.stringify(S.session));
-      L.code = ''; await enter();
+      L.code = '';
+      if (S.session.mustChange) { go('code'); return; } // startcode: eerst een eigen code kiezen
+      await enter();
     } catch (e) { if (e.message !== 'auth') { L.code = ''; L.err = e.message; viewLogin(); } }
   }
   function demoHint() {
     return DEMO ? h('div', { class: 'banner warn' }, h('b', {}, 'Testmodus. Probeer:'),
-      'Davy van de Velde (personeel, code 1234) · Khaled (lesgever, code 123456) · Jeroen De Meyer of Jeffrey (beheerder, code 1111). Onderaan kan je het testuur instellen.') : null;
+      'Davy van de Velde (personeel, code 1234) · Khaled (lesgever, code 123456) · Jeroen De Meyer of Jeffrey (beheerder, code 1111) · Marie Peeters of Lotte Lesgever (startcode 582913). Onderaan kan je het testuur instellen.') : null;
   }
   // ---------- schermen ----------
   const VIEWS = {};
@@ -243,17 +246,22 @@
   VIEWS.home = viewHome;
 
   function viewCode() {
+    if (!S.session) return viewLogin();
+    const first = !!S.session.mustChange; // aangemeld met de startcode: wijzigen is verplicht
     let n1 = '', n2 = ''; const back = () => go(S.session.type === 'lesgever' ? 'les' : 'home');
-    mount(frame(h('section', { class: 'login' }, h('h1', {}, 'Mijn code wijzigen'),
+    mount(frame(h('section', { class: 'login' }, h('h1', {}, first ? 'Kies je eigen code' : 'Mijn code wijzigen'),
+      first ? h('div', { class: 'banner warn' }, h('b', {}, 'Welkom! Je bent aangemeld met de startcode.'), 'Kies nu je eigen code. Daarna kan je bestellen. De startcode werkt dan niet meer voor jou.') : null,
       h('p', { class: 'muted' }, 'Kies een code die je goed onthoudt: ' + (S.session.type === 'lesgever' ? 'minstens 6 cijfers' : 'minstens 4 cijfers') + '. Niet 1234, 4321 of vier keer hetzelfde cijfer.'),
       h('label', {}, 'Nieuwe code', h('input', { class: 'field', type: 'password', inputmode: 'numeric', autocomplete: 'new-password', maxlength: '8', oninput: e => { n1 = e.target.value; } })),
       h('label', {}, 'Nieuwe code nog eens', h('input', { class: 'field', type: 'password', inputmode: 'numeric', autocomplete: 'new-password', maxlength: '8', oninput: e => { n2 = e.target.value; } })),
       h('p', {}, h('button', { class: 'btn big', onclick: e => act(e.currentTarget, async () => {
         if (n1 !== n2) throw new Error('De twee codes zijn niet gelijk.');
         await api('changeOwnCode', { newCode: n1 });
-        S.session.code = n1; sessionStorage.setItem('bj_s', JSON.stringify(S.session)); notify('Je code is gewijzigd.', 'ok'); back();
+        S.session.code = n1; S.session.mustChange = false; sessionStorage.setItem('bj_s', JSON.stringify(S.session));
+        notify(first ? 'Je eigen code is opgeslagen. Onthoud ze goed.' : 'Je code is gewijzigd.', 'ok');
+        if (first) await enter(); else back();
       }) }, 'Opslaan')),
-      h('p', {}, h('button', { class: 'btn sec', onclick: back }, 'Annuleren')))), { back });
+      h('p', {}, first ? h('button', { class: 'btn sec', onclick: () => logout() }, 'Uitloggen') : h('button', { class: 'btn sec', onclick: back }, 'Annuleren')))), first ? {} : { back });
   }
   VIEWS.code = viewCode;
 
@@ -399,7 +407,7 @@
     await refreshState();
     try {
       const saved = JSON.parse(sessionStorage.getItem('bj_s') || 'null');
-      if (saved && saved.id) { S.session = saved; await enter(); return; }
+      if (saved && saved.id) { S.session = saved; if (saved.mustChange) { go('code'); return; } await enter(); return; }
     } catch (e) { sessionStorage.removeItem('bj_s'); S.session = null; }
     viewLogin();
   })();
