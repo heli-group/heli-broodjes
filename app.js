@@ -1,7 +1,7 @@
 (function () {
   'use strict';
   const cfg = window.BROODJES || {};
-  const DEMO = !!cfg.demo || !cfg.apiUrl;
+  const DEMO = !!cfg.demo || (!cfg.apiUrl && !cfg.supabaseUrl);
   const $app = document.getElementById('app');
   const S = {
     session: null, menu: [], places: { personeel: [], lesgevers: [] }, settings: { fitnessSurcharge: 0.5, tokenPrice: 0.8 },
