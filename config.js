@@ -8,7 +8,7 @@
 window.BROODJES = {
   // Testmodus: true = er worden geen echte bestellingen gemaakt.
   // De gegevens blijven in de browser. Zet op false zodra de database werkt.
-  demo: true,
+  demo: false,
 
   // Supabase (de database). Beide invullen = echte bestellingen.
   supabaseUrl: "https://cfiwcjxznzxirnvrpkku.supabase.co",
