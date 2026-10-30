@@ -211,7 +211,7 @@
       if (!me.beheer) return fail('Geen toegang.', 'auth');
       const mo = db.menu.filter(m => m.monthly && m.priceMonth !== monthOf()).length;
       const rows = todayOrders();
-      return { ok: true, state: state(), mail: { status: rows.length === 0 ? 'empty' : (db.mail.sentAt ? 'sent' : 'ready'), sentAt: db.mail.sentAt, sentBy: db.mail.sentBy, additions: rows.filter(o => !o.sentAt).length && db.mail.sentAt ? rows.filter(o => !o.sentAt).length : 0 }, counts: { noCode: db.persons.filter(p => p.actief && !p.code).length, monthProducts: mo, openPrices: db.orders.filter(o => o.type !== 'vergadering' && (o.status === 'Prijs te bepalen' || (o.unit == null && o.status !== 'Geannuleerd'))).length, toCall: db.orders.filter(o => o.status === 'Te laat').length } };
+      return { ok: true, state: state(), mail: { auto: false, status: rows.length === 0 ? 'empty' : (db.mail.sentAt ? 'sent' : 'ready'), sentAt: db.mail.sentAt, sentBy: db.mail.sentBy, additions: rows.filter(o => !o.sentAt).length && db.mail.sentAt ? rows.filter(o => !o.sentAt).length : 0 }, counts: { noCode: db.persons.filter(p => p.actief && !p.code).length, monthProducts: mo, openPrices: db.orders.filter(o => o.type !== 'vergadering' && (o.status === 'Prijs te bepalen' || (o.unit == null && o.status !== 'Geannuleerd'))).length, toCall: db.orders.filter(o => o.status === 'Te laat').length } };
     },
     giveTokens(b, me) {
       if (!me.beheer) return fail('Geen toegang.', 'auth');
@@ -270,7 +270,7 @@
       const stuks = rows.reduce((s, o) => s + o.qty, 0);
       let html = mailHtml(rows);
       if (mode === 'additions') html = '<div style="font-family:Segoe UI,Arial,sans-serif;background:#FFF1E3;border:1px solid #F2C79B;padding:10px 12px;font-weight:700;color:#5A3510;margin-bottom:8px">AANVULLING op de bestelling van ' + new Date(db.mail.sentAt).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' }) + '. Alleen de regels hieronder zijn nieuw.</div>' + html;
-      return { ok: true, status: all.length === 0 ? 'empty' : (sent ? 'sent' : 'ready'), mode, sentAt: db.mail.sentAt, sentBy: db.mail.sentBy, additions: all.filter(o => !o.sentAt).length && sent ? all.filter(o => !o.sentAt).length : 0, subject: (mode === 'additions' ? 'AANVULLING: ' : '') + 'Bestelling Heli Wetteren, ' + simNow().toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long' }), to: db.settings.mailBroodjeszaak || '[nog in te vullen in Instellingen]', toMissing: !db.settings.mailBroodjeszaak, counts: { stuks, regels: rows.length, plaatsen: new Set(rows.map(r => r.place)).size }, html };
+      return { ok: true, auto: false, status: all.length === 0 ? 'empty' : (sent ? 'sent' : 'ready'), mode, sentAt: db.mail.sentAt, sentBy: db.mail.sentBy, additions: all.filter(o => !o.sentAt).length && sent ? all.filter(o => !o.sentAt).length : 0, subject: (mode === 'additions' ? 'AANVULLING: ' : '') + 'Bestelling Heli Wetteren, ' + simNow().toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long' }), to: db.settings.mailBroodjeszaak || '[nog in te vullen in Instellingen]', toMissing: !db.settings.mailBroodjeszaak, counts: { stuks, regels: rows.length, plaatsen: new Set(rows.map(r => r.place)).size }, html };
     },
     sendMail(b, me) {
       if (!me.beheer) return fail('Geen toegang.', 'auth');

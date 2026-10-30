@@ -158,13 +158,13 @@
     const frameEl = h('iframe', { class: 'mailframe', sandbox: '', srcdoc: r.html || '', title: 'Voorbeeld van de mail' });
     const canSend = !empty && (!sent || (r.mode === 'additions' ? r.additions > 0 : true));
     const label = sent ? (r.mode === 'additions' ? 'Aanvulling verzenden' : 'Volledige mail opnieuw verzenden') : 'Verzenden';
-    const manualMode = (window.BROODJES || {}).mailMode === 'manual' && !(window.BROODJES || {}).demo;
+    const manualMode = r.auto === false && !(window.BROODJES || {}).demo;
     const label2 = manualMode ? (sent ? (r.mode === 'additions' ? 'Aanvulling is verstuurd' : 'Volledige mail is verstuurd') : 'Mail is verstuurd') : label;
     const send = h('button', { class: 'btn big', disabled: !canSend, onclick: e => act(e.currentTarget, async () => {
       if (sent && r.mode === 'all' && !confirm('De broodjeszaak krijgt dan de volledige bestelling nog eens. Zeker?')) return;
       await api('sendMail', { mode: r.mode }); notify('De mail is verzonden.', 'ok'); VIEWS.mail(sent ? r.mode : 'all');
     }) }, label);
-    const manual = (window.BROODJES || {}).mailMode === 'manual' && !(window.BROODJES || {}).demo;
+    const manual = r.auto === false && !(window.BROODJES || {}).demo;   // handmatig tot de flow aan staat
     const plain = () => { const d = document.createElement('div'); d.innerHTML = r.html || ''; return d.innerText || d.textContent || ''; };
     const copyMail = async btn => {
       try {

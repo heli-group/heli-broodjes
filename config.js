@@ -15,9 +15,5 @@ window.BROODJES = {
   supabaseKey: "sb_publishable_lBxq-tPKSW7CGAytqeU5RA_AOujkXun",   // openbare sleutel (publishable key), mag zichtbaar zijn
 
   // Alternatief: het webadres van de flow "IT-Broodjes-API" (Power Automate). Leeg laten bij Supabase.
-  apiUrl: "",
-
-  // Mail naar de broodjeszaak: "manual" = de beheerder kopieert de mail en verstuurt ze zelf uit Outlook.
-  // "auto" = de flow/database verstuurt ze zelf (komt later).
-  mailMode: "manual"
+  apiUrl: ""
 };
