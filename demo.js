@@ -331,6 +331,31 @@
       if (o.sentAt) return fail('Dit assortiment is al naar de broodjeszaak gestuurd. Bel de broodjeszaak om het te annuleren.');
       o.status = 'Geannuleerd'; save(); return { ok: true };
     },
+    monthReport(b, me) {
+      if (!me.beheer) return fail('Geen toegang.', 'auth');
+      const mo = /^\d{4}-\d{2}$/.test(b.month || '') && b.month <= monthOf() && b.month >= '2025-01' ? b.month : (b.month ? null : monthOf());
+      if (!mo) return fail('Kies een geldige maand.');
+      const MN = ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli', 'augustus', 'september', 'oktober', 'november', 'december'];
+      const per = {}; const get = id => { const p = db.persons.find(x => x.id === id) || { name: '?', type: 'personeel' }; return per[id] = per[id] || { id, name: p.name, type: p.type, items: 0, tokens: 0, total: 0, lines: [] }; };
+      db.orders.filter(o => o.type !== 'vergadering' && o.status !== 'Geannuleerd' && o.date.slice(0, 7) === mo).forEach(o => { const p = get(o.personId); p.items += o.qty; p.total += rowTotal(o); p.lines.push({ date: o.date, text: lineText(o), price: o.unit == null ? null : rowTotal(o) }); });
+      db.tokens.filter(t => !t.undone && t.date.slice(0, 7) === mo).forEach(t => { const p = get(t.personId); p.tokens += t.qty; p.total += t.qty * t.price; p.lines.push({ date: t.date, text: t.qty + ' jeton(s)', price: t.qty * t.price }); });
+      const all = Object.values(per).map(p => Object.assign(p, { total: Math.round(p.total * 100) / 100, lines: p.lines.sort((x, y) => x.date.localeCompare(y.date)) })).sort((x, y) => x.name.localeCompare(y.name));
+      const strip = p => ({ id: p.id, name: p.name, items: p.items, tokens: p.tokens, total: p.total, lines: p.lines });
+      const pers = all.filter(p => p.type === 'personeel').map(strip), les = all.filter(p => p.type === 'lesgever').map(strip);
+      const sum = l => Math.round(l.reduce((s, p) => s + p.total, 0) * 100) / 100;
+      const rep = (db.hr || {})[mo];
+      return { ok: true, month: mo, label: MN[+mo.slice(5) - 1] + ' ' + mo.slice(0, 4), personeel: pers, lesgevers: les, totals: { personeel: sum(pers), lesgevers: sum(les), all: sum(pers) + sum(les) },
+        openPrices: db.orders.filter(o => o.type !== 'vergadering' && o.unit == null && o.status !== 'Geannuleerd' && o.date.slice(0, 7) === mo).length,
+        sent: rep ? { sentAt: rep.sentAt, sentBy: rep.sentBy, total: rep.total } : null, hrConfigured: true, auto: false };
+    },
+    sendHr(b, me) {
+      if (!me.beheer) return fail('Geen toegang.', 'auth');
+      const r = H.monthReport(b, me); if (!r.ok) return r;
+      if (r.openPrices > 0) return fail('Er staan nog ' + r.openPrices + ' prijzen open. Vul die eerst in bij Prijzen invullen.', 'prijzen');
+      if (r.sent && !b.force) return fail('Dit overzicht is al verstuurd.', 'al_verzonden');
+      db.hr = db.hr || {}; db.hr[r.month] = { sentAt: simNow().toISOString(), sentBy: me.name, total: r.totals.personeel }; save();
+      return { ok: true, sentAt: db.hr[r.month].sentAt, total: r.totals.personeel, persons: r.personeel.length };
+    },
     listPersons(b, me) {
       if (!me.beheer) return fail('Geen toegang.', 'auth');
       const q = norm(b.q);

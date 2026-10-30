@@ -235,7 +235,7 @@
       const t = (label, view, n) => h('button', { class: 'tile', onclick: () => go(view) }, n ? h('span', { class: 'badge' }, n) : null, label);
       kids.push(h('div', { class: 'section-label' }, 'Beheer'),
         h('div', { class: 'tiles' }, t('Jeton uitgeven', 'jeton'), t('Maandproducten invullen', 'maand', ov.counts.monthProducts), t('Prijzen invullen', 'prijzen', ov.counts.openPrices),
-          t('Nog door te bellen', 'bellen', ov.counts.toCall), t('Bestelling toevoegen na 9u', 'toevoegen'), t('Assortiment vergadering', 'assortiment'), t('Codes beheren', 'codes', ov.counts.noCode)));
+          t('Nog door te bellen', 'bellen', ov.counts.toCall), t('Bestelling toevoegen na 9u', 'toevoegen'), t('Assortiment vergadering', 'assortiment'), t('Codes beheren', 'codes', ov.counts.noCode), t('Maandoverzicht HR', 'hr')));
       if (isAdmin()) kids.push(h('div', { class: 'section-label' }, 'Alleen voor IT'), h('div', { class: 'tiles' }, t('Menu en prijzen', 'menu'), t('Instellingen', 'instellingen')));
     }
     mount(frame(h('section', {}, kids)));

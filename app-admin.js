@@ -226,6 +226,46 @@
       }) }, 'Opslaan'));
   };
 
+  // ----- maandoverzicht voor HR -----
+  VIEWS.hr = async function viewHr(month) {
+    loading('Maandoverzicht HR');
+    const r = await api('monthReport', month ? { month } : {});
+    if (!month) VIEWS.hr.cur = r.month;
+    const cur = VIEWS.hr.cur || r.month; const [y, m] = cur.split('-').map(Number);
+    const prev = m === 1 ? (y - 1) + '-12' : y + '-' + String(m - 1).padStart(2, '0');
+    const when = iso => { const d = new Date(iso); return d.toLocaleDateString('nl-BE') + ' om ' + hhmm(iso); };
+    const banner = r.openPrices > 0
+      ? h('div', { class: 'banner warn' }, h('b', {}, 'Er staan nog ' + r.openPrices + ' prijzen open.'), ' Vul ze in bij Prijzen invullen. Daarna kan het overzicht naar HR. ', h('button', { class: 'btn sec small', onclick: () => go('prijzen') }, 'Prijzen invullen'))
+      : r.sent ? h('div', { class: 'banner ok' }, h('b', {}, 'Naar HR verzonden op ' + when(r.sent.sentAt)), ' door ' + r.sent.sentBy + '.')
+      : h('div', { class: 'banner' }, h('b', {}, 'Nog niet naar HR verzonden.'), ' Dat gebeurt vanzelf op de eerste werkdag van de volgende maand, zodra alle prijzen ingevuld zijn.');
+    const block = (title, list, total, note) => h('div', { class: 'card' }, h('h2', {}, title), note ? h('p', { class: 'muted' }, note) : null,
+      list.length ? list.map(p => h('details', { class: 'hrrow' },
+        h('summary', {}, h('span', { class: 'hrname' }, p.name), h('span', { class: 'muted' }, p.items + ' broodje' + (p.items === 1 ? '' : 's') + (p.tokens ? ' · ' + p.tokens + ' jeton' + (p.tokens === 1 ? '' : 's') : '')), h('b', {}, eur(p.total))),
+        p.lines.map(l => h('div', { class: 'row2' }, h('span', {}, dateShort(l.date) + ' · ' + l.text), h('span', {}, l.price == null ? 'prijs open' : eur(l.price))))))
+        : h('p', { class: 'muted' }, 'Geen bestellingen.'),
+      h('div', { class: 'row2 totalrow' }, h('b', {}, 'Totaal'), h('b', {}, eur(total))));
+    const csv = () => {
+      const q = v => '"' + String(v).replace(/"/g, '""') + '"'; const num = v => v == null ? '' : String(v).replace('.', ',');
+      const rows = [['Maand', 'Naam', 'Soort', 'Datum', 'Omschrijving', 'Bedrag']];
+      [['Personeel', r.personeel], ['Lesgever', r.lesgevers]].forEach(([k, list]) => list.forEach(p => p.lines.forEach(l => rows.push([r.label, p.name, k, l.date, l.text, num(l.price)]))));
+      const blob = new Blob(['\ufeff' + rows.map(x => x.map(q).join(';')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'broodjes-' + r.month + '.csv'; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    };
+    const canSend = r.openPrices === 0 && (r.personeel.length + r.lesgevers.length) > 0 && r.hrConfigured !== false;
+    const send = h('button', { class: 'btn big', disabled: !canSend, onclick: e => act(e.currentTarget, async () => {
+      if (r.sent && !window.confirm('Dit overzicht is al verstuurd. Wil je het opnieuw sturen?')) return;
+      await api('sendHr', { month: r.month, force: !!r.sent }); notify('Het overzicht is naar HR verzonden.', 'ok'); VIEWS.hr(r.month);
+    }) }, r.sent ? 'Opnieuw naar HR sturen' : 'Naar HR sturen');
+    page('Maandoverzicht HR',
+      h('div', { class: 'seg' }, [[prev, 'Vorige maand'], [cur, 'Deze maand']].map(([mo, l]) => h('button', { class: r.month === mo ? 'on' : '', onclick: () => VIEWS.hr(mo) }, l))),
+      h('h2', { style: 'text-transform:capitalize' }, r.label), banner,
+      block('Personeel (loonafhouding)', r.personeel, r.totals.personeel),
+      r.lesgevers.length ? block('Lesgevers (geen loonafhouding, enkel ter info)', r.lesgevers, r.totals.lesgevers) : null,
+      r.hrConfigured === false ? h('div', { class: 'banner warn' }, 'Het e-mailadres van HR is nog niet ingevuld. Een IT-beheerder doet dat bij Instellingen.') : null,
+      r.auto === false && !(window.BROODJES || {}).demo ? h('div', { class: 'banner warn' }, 'Automatisch verzenden staat nog niet aan. Vraag het aan IT.') : null,
+      h('div', { style: 'display:flex;gap:.6rem;flex-wrap:wrap' }, send, h('button', { class: 'btn sec', onclick: csv }, 'Download detail (Excel)')));
+  };
+
   // ----- prijzen -----
   VIEWS.prijzen = async function viewPrijzen() {
     loading('Prijzen invullen');
