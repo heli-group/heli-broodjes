@@ -147,3 +147,5 @@ table.codes{width:100%;border-collapse:collapse;margin:1rem 0}
 table.codes td{border-bottom:1px solid #E1E6EC;padding:.5rem .4rem;font-size:1.1rem}
 .bigmono{font-family:Consolas,monospace;font-weight:700;letter-spacing:.2rem;text-align:right}
 @media print{body *{visibility:hidden}.printarea,.printarea *{visibility:visible}.printarea{position:absolute;left:0;top:0;width:100%;max-height:none!important;overflow:visible!important}.noprint{display:none!important}}
+
+.card ol.steps{margin:.4rem 0 .8rem 1.2rem;line-height:1.5}

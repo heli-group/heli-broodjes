@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="nl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Test van de database</title>
+<style>body{font-family:Segoe UI,Arial,sans-serif;max-width:720px;margin:2rem auto;padding:0 1rem;color:#1b2430}h1{font-size:1.4rem}
+.r{display:flex;gap:.6rem;align-items:flex-start;padding:.5rem 0;border-bottom:1px solid #e5e7eb}.ok{color:#0a7a3c;font-weight:700}.bad{color:#b42318;font-weight:700}.wait{color:#8a8a8a}
+small{color:#6b7280}button{background:#EF7D00;border:0;color:#fff;padding:.6rem 1.1rem;border-radius:8px;font-size:1rem;cursor:pointer}</style></head>
+<body><h1>Test van de database (Supabase)</h1>
+<p>Deze pagina controleert of de database antwoordt <b>en</b> of de gegevens van buitenaf afgesloten zijn. Er wordt niets aangemaakt of gewijzigd.</p>
+<p><button id="go">Start de test</button></p><div id="out"></div>
+<script src="config.js"></script>
+<script>
+const cfg = window.BROODJES || {}; const out = document.getElementById('out');
+const row = (txt, state, extra) => { const d = document.createElement('div'); d.className = 'r'; d.innerHTML = '<span class="' + state + '">' + (state === 'ok' ? 'OK' : state === 'bad' ? 'FOUT' : '…') + '</span><span>' + txt + (extra ? '<br><small>' + extra + '</small>' : '') + '</span>'; out.appendChild(d); return d; };
+async function rpc(body) { const r = await fetch(cfg.supabaseUrl.replace(/\/$/, '') + '/rest/v1/rpc/api', { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: cfg.supabaseKey }, body: JSON.stringify({ body }) }); return { status: r.status, json: await r.json().catch(() => null) }; }
+async function tryRead(path, extraHeaders) { const r = await fetch(cfg.supabaseUrl.replace(/\/$/, '') + '/rest/v1/' + path, { headers: Object.assign({ apikey: cfg.supabaseKey }, extraHeaders || {}) }); const t = await r.text(); return { status: r.status, text: t.slice(0, 200) }; }
+document.getElementById('go').onclick = async () => {
+  out.innerHTML = '';
+  if (!cfg.supabaseUrl || !cfg.supabaseKey) { row('Vul eerst <b>supabaseUrl</b> en <b>supabaseKey</b> in bij config.js.', 'bad'); return; }
+  try {
+    let r = await rpc({ action: 'ping' }); row('De database antwoordt op een ping', r.json && r.json.pong ? 'ok' : 'bad', 'HTTP ' + r.status);
+    r = await rpc({ action: 'getState' }); row('Sluituur en tijd worden berekend', r.json && r.json.state ? 'ok' : 'bad', r.json && r.json.state ? 'Open nu: ' + (r.json.state.open ? 'ja' : 'nee') + ' · sluit om ' + new Date(r.json.state.closesAt).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' }) : '');
+    r = await rpc({ action: 'findPerson', q: 'jeroen' }); row('Namen zoeken werkt', r.json && r.json.persons && r.json.persons.length ? 'ok' : 'bad', r.json && r.json.persons ? r.json.persons.length + ' resultaat' : '');
+    r = await rpc({ action: 'getMenu', auth: { id: '1', code: '0000' } }); row('Zonder juiste code krijg je geen menu', r.json && r.json.ok === false && r.json.error === 'auth' ? 'ok' : 'bad');
+    r = await rpc({ action: 'adminOverview' }); row('Zonder aanmelden geen beheerdersgegevens', r.json && r.json.ok === false ? 'ok' : 'bad');
+    let t = await tryRead('persons?select=*'); row('De personenlijst is niet rechtstreeks te lezen', t.status >= 400 || /\[\]/.test(t.text) ? 'ok' : 'bad', 'HTTP ' + t.status);
+    t = await tryRead('persons?select=*', { 'Accept-Profile': 'broodjes' }); row('Het schema "broodjes" is niet bereikbaar van buitenaf', t.status >= 400 ? 'ok' : 'bad', 'HTTP ' + t.status);
+    t = await tryRead('orders?select=*', { 'Accept-Profile': 'broodjes' }); row('De bestellingen zijn niet rechtstreeks te lezen', t.status >= 400 ? 'ok' : 'bad', 'HTTP ' + t.status);
+    row('Klaar. Staat overal OK, dan kan je de pagina gebruiken.', 'wait');
+  } catch (e) { row('Er ging iets mis: ' + e.message, 'bad', 'Controleer het adres en de sleutel in config.js'); }
+};
+</script></body></html>

@@ -158,16 +158,35 @@
     const frameEl = h('iframe', { class: 'mailframe', sandbox: '', srcdoc: r.html || '', title: 'Voorbeeld van de mail' });
     const canSend = !empty && (!sent || (r.mode === 'additions' ? r.additions > 0 : true));
     const label = sent ? (r.mode === 'additions' ? 'Aanvulling verzenden' : 'Volledige mail opnieuw verzenden') : 'Verzenden';
+    const manualMode = (window.BROODJES || {}).mailMode === 'manual' && !(window.BROODJES || {}).demo;
+    const label2 = manualMode ? (sent ? (r.mode === 'additions' ? 'Aanvulling is verstuurd' : 'Volledige mail is verstuurd') : 'Mail is verstuurd') : label;
     const send = h('button', { class: 'btn big', disabled: !canSend, onclick: e => act(e.currentTarget, async () => {
       if (sent && r.mode === 'all' && !confirm('De broodjeszaak krijgt dan de volledige bestelling nog eens. Zeker?')) return;
       await api('sendMail', { mode: r.mode }); notify('De mail is verzonden.', 'ok'); VIEWS.mail(sent ? r.mode : 'all');
     }) }, label);
+    const manual = (window.BROODJES || {}).mailMode === 'manual' && !(window.BROODJES || {}).demo;
+    const plain = () => { const d = document.createElement('div'); d.innerHTML = r.html || ''; return d.innerText || d.textContent || ''; };
+    const copyMail = async btn => {
+      try {
+        if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+          await navigator.clipboard.write([new ClipboardItem({ 'text/html': new Blob([r.html || ''], { type: 'text/html' }), 'text/plain': new Blob([plain()], { type: 'text/plain' }) })]);
+        } else {
+          const f = frameEl; f.contentWindow.focus(); f.contentWindow.document.execCommand('selectAll'); if (!f.contentWindow.document.execCommand('copy')) throw new Error('kopieren mislukt');
+        }
+        notify('De mail is gekopieerd. Plak ze in Outlook met Ctrl+V.', 'ok');
+      } catch (e) { notify('Kopiëren lukt niet. Selecteer de tekst in het voorbeeld en kopieer met Ctrl+C.', 'err'); }
+    };
+    const manualBox = manual && !empty ? h('div', { class: 'card' }, h('h2', {}, 'Zo verstuur je de mail'),
+      h('ol', { class: 'steps' }, h('li', {}, 'Klik op ', h('b', {}, 'Kopieer mail'), '.'), h('li', {}, 'Klik op ', h('b', {}, 'Open Outlook'), ' en plak de mail met Ctrl+V.'), h('li', {}, 'Verstuur ze en klik hieronder op ', h('b', {}, label2), '.')),
+      h('div', { style: 'display:flex;gap:.5rem;flex-wrap:wrap' }, h('button', { class: 'btn', onclick: e => copyMail(e.currentTarget) }, 'Kopieer mail'),
+        h('a', { class: 'btn sec', href: 'mailto:' + (r.toMissing ? '' : encodeURIComponent(r.to)) + '?subject=' + encodeURIComponent(r.subject) }, 'Open Outlook'))) : null;
     page(title, banner, h('div', { class: 'two' },
       h('div', { class: 'card' }, h('div', { class: 'mailmeta' }, 'Onderwerp: ' + r.subject + ' · Aan: ' + r.to), r.toMissing ? h('div', { class: 'banner warn' }, 'Er is nog geen e-mailadres van de broodjeszaak ingevuld. Een IT-beheerder doet dat bij Instellingen.') : null, frameEl),
       h('div', { style: 'display:flex;flex-direction:column;gap:1rem' }, toggle,
         h('div', { class: 'card' }, h('h2', {}, 'Samenvatting'), h('div', { class: 'row2' }, 'Stuks', h('b', {}, r.counts.stuks)), h('div', { class: 'row2' }, 'Bestelregels', h('b', {}, r.counts.regels)), h('div', { class: 'row2' }, 'Plaatsen', h('b', {}, r.counts.plaatsen))),
+        manualBox,
         h('button', { class: 'btn sec', onclick: () => go('toevoegen') }, 'Bestelling toevoegen'), send,
-        h('small', {}, 'De mail vertrekt uit de gedeelde mailbox, met IT in kopie.'))));
+        h('small', {}, manual ? 'Klik pas op de knop hierboven nadat je de mail echt verstuurd hebt. Zo weten de andere beheerders dat het gebeurd is.' : 'De mail vertrekt uit de gedeelde mailbox, met IT in kopie.'))));
   };
 
   // ----- jeton -----
