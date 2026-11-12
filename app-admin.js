@@ -280,8 +280,30 @@
   };
 
   // ----- bestelling toevoegen na 9u -----
+  // Voor een lesgever die vergeten is door te sturen: hetzelfde scherm als de lesgever zelf, alle broodjes in één keer.
+  function toevoegenLes(T) {
+    const L = T.les || (T.les = { qty: {}, remark: {} });
+    const items = S.menu.filter(m => m.lesgevers).sort((a, b) => a.order - b.order);
+    const refresh = () => VIEWS.toevoegen();
+    const places = S.places.lesgevers || [];
+    const total = C.lesTotal(L, items), ready = !!(T.person && T.place && total > 0);
+    return h('div', { class: 'card' },
+      h('div', { class: 'seg' }, [['lesgever', 'Lesgever'], ['personeel', 'Personeel']].map(([k, l]) => h('button', { class: T.type === k ? 'on' : '', onclick: () => { Object.assign(T, { type: k, person: null, place: '', menuId: '', soort: 'wit' }); refresh(); } }, l))),
+      h('h2', {}, 'Wie?'), T.person ? h('div', { class: 'picked' }, T.person.name, h('button', { class: 'btn sec small', onclick: () => { T.person = null; refresh(); } }, 'Andere persoon')) : personPicker(p => { T.person = p; refresh(); }, 'lesgever'),
+      h('h2', {}, 'Waar zit de lesgever?'), h('div', { class: 'placegrid' }, places.map(p => h('button', { class: T.place === p ? 'on' : '', onclick: () => { T.place = p; refresh(); } }, p))),
+      h('h2', {}, 'Kies de broodjes'),
+      T.person && T.place ? [h('p', { class: 'muted' }, 'Tik + bij wit of bruin. Opmerking nodig? Typ ze eronder.'), h('div', { class: 'lesgrid' }, C.lesCards(L, items, refresh))] : h('p', { class: 'muted' }, 'Kies eerst de persoon en de plaats. Daarna verschijnen de broodjes.'),
+      total ? C.lesSummary(L, items) : null,
+      h('div', { class: 'banner warn' }, 'Je belt de broodjeszaak zelf. Dit wordt geregistreerd als "Telefonisch doorgegeven", met jouw naam en het uur.'),
+      h('button', { id: 'saveLate', class: 'btn big', disabled: !ready, onclick: e => act(e.currentTarget, async () => {
+        await api('addLateOrder', { targetId: T.person.id, place: T.place, date: C.todayISO(), lines: C.lesLines(L, items) });
+        notify('Geregistreerd voor ' + T.person.name + '.', 'ok'); T.les = { qty: {}, remark: {} }; refresh();
+      }) }, 'Opslaan en registreren'));
+  }
+
   VIEWS.toevoegen = function viewToevoegen() {
     const T = S.toev || (S.toev = { type: 'lesgever', person: null, place: '', menuId: '', soort: 'wit', qty: 1, remark: '' });
+    if (T.type === 'lesgever') return page('Bestelling toevoegen na 9u', toevoegenLes(T));
     const items = T.type === 'lesgever' ? S.menu.filter(m => m.lesgevers) : S.menu.filter(m => m.price != null || m.openPrice);
     const item = items.find(m => m.id === T.menuId);
     const places = T.type === 'lesgever' ? S.places.lesgevers : S.places.personeel;
@@ -326,7 +348,7 @@
     const r = await api('listPersons', { q });
     let timer;
     const search = h('input', { class: 'field', type: 'search', placeholder: 'Zoek een naam', value: q, 'aria-label': 'Zoek een naam', oninput: e => { clearTimeout(timer); const v = e.target.value; timer = setTimeout(() => VIEWS.codes(v), 400); } });
-    const rows = r.persons.map(p => h('div', { class: 'row2' }, h('span', {}, h('b', {}, p.name), ' ', h('small', {}, typeLabel(p.type)), ' ', p.actief ? null : h('span', { class: 'chip grey' }, 'Niet actief'), ' ', p.hasCode ? null : h('span', { class: 'chip warn' }, 'Nog geen code'), ' ', p.mustChange ? h('span', { class: 'chip grey' }, 'Nog startcode') : null),
+    const rows = r.persons.map(p => h('div', { class: 'row2' }, h('span', {}, h('b', {}, p.name), ' ', h('small', {}, typeLabel(p.type)), ' ', p.actief ? null : h('span', { class: 'chip grey' }, 'Niet actief'), ' ', p.hasCode ? null : h('span', { class: 'chip warn' }, 'Nog geen code')),
       h('span', { class: 'tools' },
         h('button', { class: 'btn small', onclick: e => act(e.currentTarget, async () => { const c = await api('resetCode', { targetId: p.id }); codeModal(p.name, c.code); }) }, 'Nieuwe code'),
         h('button', { class: 'btn sec small', onclick: () => customCodeModal(p) }, 'Eigen code'),
@@ -337,7 +359,7 @@
       h('select', { class: 'field', 'aria-label': 'Soort', onchange: e => { nType = e.target.value; } }, h('option', { value: 'personeel' }, 'Personeel'), h('option', { value: 'lesgever' }, 'Lesgever')),
       h('input', { class: 'field', inputmode: 'numeric', maxlength: '8', placeholder: 'Eigen code (optioneel, anders maken we er een)', 'aria-label': 'Eigen code', oninput: e => { nCode = e.target.value; } }),
       h('button', { class: 'btn', onclick: e => act(e.currentTarget, async () => { const c = await api('addPerson', { name: nName, type: nType, code: nCode.trim() }); codeModal(nName.trim(), c.code); VIEWS.codes(q); }) }, 'Toevoegen en code maken'));
-    page('Codes beheren', h('p', { class: 'muted' }, 'Een code wordt maar één keer getoond. Bestaande codes kan niemand opvragen, enkel vervangen. Je kan een code laten maken of zelf een code kiezen. "Nog startcode" = die persoon moet bij de eerste keer aanmelden nog een eigen code kiezen.'),
+    page('Codes beheren', h('p', { class: 'muted' }, 'Een code wordt maar één keer getoond. Bestaande codes kan niemand opvragen, enkel vervangen. Je kan een code laten maken of zelf een code kiezen.'),
       r.persons.some(p => p.actief && !p.hasCode) ? h('p', {}, h('button', { class: 'btn', onclick: e => act(e.currentTarget, async () => { const x = await api('bulkCodes'); bulkModal(x.items); VIEWS.codes(q); }) }, 'Codes maken voor iedereen zonder code')) : null,
       h('div', { class: 'two' }, h('div', { class: 'card' }, search, rows.length ? rows : h('p', { class: 'muted' }, 'Niemand gevonden.')), add));
     const f = document.querySelector('input[type=search]'); if (f && q) { f.focus(); f.setSelectionRange(q.length, q.length); }

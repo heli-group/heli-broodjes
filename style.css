@@ -151,3 +151,10 @@ table.codes td{border-bottom:1px solid #E1E6EC;padding:.5rem .4rem;font-size:1.1
 .card ol.steps{margin:.4rem 0 .8rem 1.2rem;line-height:1.5}
 
 .hrrow summary{display:flex;justify-content:space-between;align-items:center;gap:.8rem;cursor:pointer;padding:.55rem 0;border-bottom:1px solid #e5e7eb;list-style:none}.hrrow summary::-webkit-details-marker{display:none}.hrrow .hrname{flex:1;font-weight:600}.hrrow .row2{padding:.25rem 0 .25rem 1rem;font-size:.95rem}.totalrow{border-top:2px solid #001B35;margin-top:.6rem;padding-top:.6rem}
+
+/* taalknoppen */
+.lang{display:inline-flex;gap:3px;flex-shrink:0}
+.lang-btn{border:2px solid #AAB5C2;background:#fff;color:var(--navy);font-weight:700;font-size:.85rem;line-height:1;padding:.4rem .55rem;border-radius:.5rem;cursor:pointer;min-width:2.4rem}
+.lang-btn.on{background:var(--navy);border-color:var(--navy);color:#fff}
+.lang-btn:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
+.who{flex-wrap:wrap;justify-content:flex-end}

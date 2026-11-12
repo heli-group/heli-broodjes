@@ -11,6 +11,7 @@
   let currentView = 'login';
 
   // ---------- hulpfuncties ----------
+  const TRANSL_ATTR = ['placeholder', 'aria-label', 'title', 'alt'];
   function h(tag, attrs, ...kids) {
     const el = document.createElement(tag);
     if (attrs) for (const k of Object.keys(attrs)) {
@@ -20,18 +21,22 @@
       else if (k === 'style') el.style.cssText = v;
       else if (k.slice(0, 2) === 'on') el.addEventListener(k.slice(2), v);
       else if (k === 'value') el.value = v;
+      else if (TRANSL_ATTR.includes(k) && typeof v === 'string') { el.setAttribute(k, I18N.tr(v)); I18N.rememberAttr(el, k, v); }
       else el.setAttribute(k, v === true ? '' : v);
     }
     for (const kid of kids.flat(Infinity)) {
       if (kid == null || kid === false) continue;
-      el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+      if (kid.nodeType) { el.append(kid); continue; }
+      const raw = String(kid), node = document.createTextNode(typeof kid === 'string' ? I18N.tr(raw) : raw);
+      if (typeof kid === 'string') I18N.remember(node, raw);
+      el.append(node);
     }
     return el;
   }
   const eurFmt = new Intl.NumberFormat('nl-BE', { style: 'currency', currency: 'EUR' });
   const eur = n => (n == null || isNaN(n)) ? '—' : eurFmt.format(n);
   const typeLabel = t => t === 'lesgever' ? 'Lesgever' : 'Personeel';
-  const hhmm = iso => new Date(iso).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' });
+  const hhmm = iso => new Date(iso).toLocaleTimeString(I18N.locale(), { hour: '2-digit', minute: '2-digit' });
   const pad2 = n => String(n).padStart(2, '0');
   const nowServer = () => new Date(Date.now() + (S.offset || 0));
   const todayISO = () => { const d = nowServer(); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); };
@@ -66,7 +71,6 @@
     catch (e) { throw new Error('Geen verbinding met de server. Probeer opnieuw.'); }
     if (!r || r.ok === false) {
       if (r && r.error === 'auth' && S.session && action !== 'login') { logout('Je bent uitgelogd. Log opnieuw in.'); throw new Error('auth'); }
-      if (r && r.error === 'mustchange' && S.session) { S.session.mustChange = true; sessionStorage.setItem('bj_s', JSON.stringify(S.session)); go('code'); throw new Error('auth'); }
       throw new Error((r && r.message) || 'Er ging iets mis.');
     }
     return r;
@@ -83,7 +87,7 @@
     const cls = diff <= 0 ? 'late' : (diff <= 600000 ? 'soon' : '');
     document.querySelectorAll('.clock').forEach(el => {
       el.className = 'clock ' + cls;
-      el.querySelector('.cdate').textContent = n.toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      el.querySelector('.cdate').textContent = n.toLocaleDateString(I18N.locale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
       el.querySelector('.ctime').textContent = pad2(n.getHours()) + ':' + pad2(n.getMinutes());
     });
   }
@@ -113,12 +117,20 @@
         h('input', { type: 'time', 'aria-label': 'Testuur', value: D.getClock().text, onchange: e => { if (e.target.value) setT(e.target.value); } }),
         h('button', { class: 'btn sec small', onclick: () => setT(null) }, 'Echte tijd')));
   }
+  function langSwitch() {
+    return h('div', { class: 'lang', role: 'group', 'aria-label': 'Taal' }, I18N.langs.map(l => h('button', { type: 'button', class: 'lang-btn' + (I18N.lang === l ? ' on' : ''), lang: l, 'aria-pressed': String(I18N.lang === l), onclick: () => setLang(l) }, l.toUpperCase())));
+  }
+  function setLang(l) { I18N.set(l); }
+  I18N.onChange = l => {   // wordt na elke taalwissel aangeroepen: klok en knoppen bijwerken
+    paintClock();
+    document.querySelectorAll('.lang-btn').forEach(b => { const on = b.getAttribute('lang') === l; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+  };
   function frame(content, o) {
     o = o || {}; const s = S.session;
     const head = h('header', { class: 'top' },
       h('a', { class: 'brand', href: './', title: 'Naar de startpagina', 'aria-label': 'Naar de startpagina', onclick: e => { e.preventDefault(); toStart(); } }, h('img', { class: 'logo', src: 'logo.png', alt: 'Heli Group' }), h('span', { class: 'sub' }, 'Broodjes bestellen')),
       clockEl(),
-      s ? h('div', { class: 'who' }, h('span', {}, s.name), s.mustChange ? null : h('button', { class: 'btn sec small', onclick: () => go('code') }, 'Mijn code'), h('button', { class: 'btn sec small', onclick: () => logout() }, 'Uitloggen')) : h('div', { class: 'who' }));
+      s ? h('div', { class: 'who' }, langSwitch(), h('span', {}, s.name), h('button', { class: 'btn sec small', onclick: () => go('code') }, 'Mijn code'), h('button', { class: 'btn sec small', onclick: () => logout() }, 'Uitloggen')) : h('div', { class: 'who' }, langSwitch()));
     return h('div', { class: 'page' }, head,
       h('main', {}, o.back ? h('button', { class: 'btn sec small back', onclick: o.back }, '← Terug') : null, content), demoBar());
   }
@@ -170,14 +182,12 @@
       const r = await api('login', { personId: L.picked.id, code: L.code }, { noAuth: true });
       S.session = Object.assign({}, r.person, { code: L.code });
       sessionStorage.setItem('bj_s', JSON.stringify(S.session));
-      L.code = '';
-      if (S.session.mustChange) { go('code'); return; } // startcode: eerst een eigen code kiezen
-      await enter();
+      L.code = ''; await enter();
     } catch (e) { if (e.message !== 'auth') { L.code = ''; L.err = e.message; viewLogin(); } }
   }
   function demoHint() {
     return DEMO ? h('div', { class: 'banner warn' }, h('b', {}, 'Testmodus. Probeer:'),
-      'Davy van de Velde (personeel, code 1234) · Khaled (lesgever, code 123456) · Jeroen De Meyer of Jeffrey (beheerder, code 1111) · Marie Peeters of Lotte Lesgever (startcode 582913). Onderaan kan je het testuur instellen.') : null;
+      'Davy van de Velde (personeel, code 1234) · Khaled (lesgever, code 123456) · Jeroen De Meyer of Jeffrey (beheerder, code 1111). Onderaan kan je het testuur instellen.') : null;
   }
   // ---------- schermen ----------
   const VIEWS = {};
@@ -246,22 +256,17 @@
   VIEWS.home = viewHome;
 
   function viewCode() {
-    if (!S.session) return viewLogin();
-    const first = !!S.session.mustChange; // aangemeld met de startcode: wijzigen is verplicht
     let n1 = '', n2 = ''; const back = () => go(S.session.type === 'lesgever' ? 'les' : 'home');
-    mount(frame(h('section', { class: 'login' }, h('h1', {}, first ? 'Kies je eigen code' : 'Mijn code wijzigen'),
-      first ? h('div', { class: 'banner warn' }, h('b', {}, 'Welkom! Je bent aangemeld met de startcode.'), 'Kies nu je eigen code. Daarna kan je bestellen. De startcode werkt dan niet meer voor jou.') : null,
+    mount(frame(h('section', { class: 'login' }, h('h1', {}, 'Mijn code wijzigen'),
       h('p', { class: 'muted' }, 'Kies een code die je goed onthoudt: ' + (S.session.type === 'lesgever' ? 'minstens 6 cijfers' : 'minstens 4 cijfers') + '. Niet 1234, 4321 of vier keer hetzelfde cijfer.'),
       h('label', {}, 'Nieuwe code', h('input', { class: 'field', type: 'password', inputmode: 'numeric', autocomplete: 'new-password', maxlength: '8', oninput: e => { n1 = e.target.value; } })),
       h('label', {}, 'Nieuwe code nog eens', h('input', { class: 'field', type: 'password', inputmode: 'numeric', autocomplete: 'new-password', maxlength: '8', oninput: e => { n2 = e.target.value; } })),
       h('p', {}, h('button', { class: 'btn big', onclick: e => act(e.currentTarget, async () => {
         if (n1 !== n2) throw new Error('De twee codes zijn niet gelijk.');
         await api('changeOwnCode', { newCode: n1 });
-        S.session.code = n1; S.session.mustChange = false; sessionStorage.setItem('bj_s', JSON.stringify(S.session));
-        notify(first ? 'Je eigen code is opgeslagen. Onthoud ze goed.' : 'Je code is gewijzigd.', 'ok');
-        if (first) await enter(); else back();
+        S.session.code = n1; sessionStorage.setItem('bj_s', JSON.stringify(S.session)); notify('Je code is gewijzigd.', 'ok'); back();
       }) }, 'Opslaan')),
-      h('p', {}, first ? h('button', { class: 'btn sec', onclick: () => logout() }, 'Uitloggen') : h('button', { class: 'btn sec', onclick: back }, 'Annuleren')))), first ? {} : { back });
+      h('p', {}, h('button', { class: 'btn sec', onclick: back }, 'Annuleren')))), { back });
   }
   VIEWS.code = viewCode;
 
@@ -318,7 +323,7 @@
       h('section', { class: 'card' }, h('h2', {}, 'Wat je bestelt'), lines, h('div', { class: 'total' }, h('span', {}, 'Totaal'), h('b', {}, eur(cartTotal())))),
       h('section', { class: 'card' }, h('h2', {}, 'Waar leveren we het?'),
         h('div', { class: 'seg' }, places.map(p => h('button', { class: S.place === p ? 'on' : '', onclick: () => { S.place = p; viewCheckout(); } }, p))),
-        h('p', {}, 'Voor ', h('b', {}, 'vandaag'), '. Een datum in het verleden kan niet.'),
+        h('p', {}, 'Voor vandaag. Een datum in het verleden kan niet.'),
         h('p', { class: 'muted' }, 'Het bedrag wordt aan het einde van de maand van je loon afgehouden.'),
         send, h('button', { class: 'btn sec', onclick: () => go('order') }, 'Nog iets toevoegen'))), { back: () => go('order') }));
   }
@@ -349,11 +354,34 @@
   VIEWS.mine = viewMine;
 
   // ----- lesgevers -----
+  // ---------- het lesgeversscherm: ook bruikbaar voor de beheerders (bestelling toevoegen na 9u) ----------
+  const lesGet = (L, id) => L.qty[id] || { wit: 0, bruin: 0 };
+  const lesTotal = (L, items) => items.reduce((s, m) => s + lesGet(L, m.id).wit + lesGet(L, m.id).bruin, 0);
+  function lesCards(L, items, rerender) {
+    return items.map(m => {
+      const q = lesGet(L, m.id), on = q.wit + q.bruin > 0;
+      const set = (k, v) => { L.qty[m.id] = Object.assign({}, lesGet(L, m.id), { [k]: v }); rerender(); };
+      return h('div', { class: 'lescard' + (on ? ' on' : '') }, h('div', { class: 'name' }, m.name),
+        h('div', { class: 'steps' }, stepper(q.wit, 0, 12, v => set('wit', v), 'Wit'), stepper(q.bruin, 0, 12, v => set('bruin', v), 'Bruin')),
+        on ? h('input', { class: 'field', placeholder: 'Opmerking, bv. 1 zonder tomaat', value: L.remark[m.id] || '', 'aria-label': 'Opmerking bij ' + m.name, oninput: e => { L.remark[m.id] = e.target.value; } }) : null);
+    });
+  }
+  function lesLines(L, items) {
+    const lines = [];
+    items.forEach(m => { const q = lesGet(L, m.id); let first = true; ['wit', 'bruin'].forEach(s => { if (q[s] > 0) { lines.push({ menuId: m.id, soort: s, qty: q[s], remark: first ? (L.remark[m.id] || '').trim() : '' }); first = false; } }); });
+    return lines;
+  }
+  function lesSummary(L, items) {
+    return h('div', { class: 'card' }, items.filter(m => lesGet(L, m.id).wit + lesGet(L, m.id).bruin > 0).map(m => { const q = lesGet(L, m.id), rem = (L.remark[m.id] || '').trim();
+      return h('div', { class: 'sumline' }, h('div', { class: 'r' }, h('b', {}, m.name), h('span', {}, [q.wit ? q.wit + ' wit' : '', q.bruin ? q.bruin + ' bruin' : ''].filter(Boolean).join(' · '))), rem ? h('div', { class: 'rem' }, 'Opmerking: ' + rem) : null); }),
+      h('div', { class: 'total' }, h('span', {}, 'Totaal'), h('b', {}, lesTotal(L, items) + ' stuks')));
+  }
+
   function viewLes() {
     const L = S.les || (S.les = { step: 'place', place: '', qty: {}, remark: {}, ok: false });
     const items = S.menu.filter(m => m.lesgevers).sort((a, b) => a.order - b.order);
-    const get = id => L.qty[id] || { wit: 0, bruin: 0 };
-    const total = () => items.reduce((s, m) => s + get(m.id).wit + get(m.id).bruin, 0);
+    const get = id => lesGet(L, id);
+    const total = () => lesTotal(L, items);
     if (!S.open) {
       return mount(frame(h('section', { class: 'login' }, h('h1', {}, 'Het bestellen is gesloten'),
         h('div', { class: 'banner warn' }, h('b', {}, 'Het bestellen sloot om ' + closeLabel() + '.'), 'Iets vergeten? Bel een van de broodjes-beheerders. Zij regelen het met de broodjeszaak.'),
@@ -367,24 +395,15 @@
         h('p', {}, h('button', { class: 'btn big', disabled: !L.place, onclick: () => { L.step = 'broodjes'; viewLes(); } }, 'Volgende')))));
     }
     if (L.step === 'broodjes') {
-      const cards = items.map(m => {
-        const q = get(m.id), on = q.wit + q.bruin > 0;
-        const set = (k, v) => { L.qty[m.id] = Object.assign({}, get(m.id), { [k]: v }); viewLes(); };
-        return h('div', { class: 'lescard' + (on ? ' on' : '') }, h('div', { class: 'name' }, m.name),
-          h('div', { class: 'steps' }, stepper(q.wit, 0, 12, v => set('wit', v), 'Wit'), stepper(q.bruin, 0, 12, v => set('bruin', v), 'Bruin')),
-          on ? h('input', { class: 'field', placeholder: 'Opmerking, bv. 1 zonder tomaat', value: L.remark[m.id] || '', 'aria-label': 'Opmerking bij ' + m.name, oninput: e => { L.remark[m.id] = e.target.value; } }) : null);
-      });
+      const cards = lesCards(L, items, viewLes);
       const side = h('aside', { class: 'card' }, h('h2', {}, 'Jouw bestelling'),
         total() ? items.filter(m => get(m.id).wit + get(m.id).bruin > 0).map(m => h('div', {}, h('b', {}, m.name), h('br'), h('small', {}, [get(m.id).wit ? get(m.id).wit + ' wit' : '', get(m.id).bruin ? get(m.id).bruin + ' bruin' : ''].filter(Boolean).join(' · ')))) : h('p', { class: 'muted' }, 'Nog niets gekozen.'),
         h('div', { class: 'total' }, h('span', {}, 'Totaal'), h('b', {}, total() + ' stuks')),
         h('button', { class: 'btn', disabled: !total(), onclick: () => { L.step = 'overzicht'; L.ok = false; viewLes(); } }, 'Naar overzicht'));
       return mount(frame(h('div', { class: 'lesorder' }, h('section', {}, h('h1', {}, 'Kies je broodjes'), h('p', { class: 'muted' }, 'Tik + bij wit of bruin. Opmerking nodig? Typ ze eronder.'), h('div', { class: 'lesgrid' }, cards)), side), { back: () => { L.step = 'place'; viewLes(); } }));
     }
-    const lines = []; // [{menuId, soort, qty, remark}]
-    items.forEach(m => { const q = get(m.id); let first = true; ['wit', 'bruin'].forEach(s => { if (q[s] > 0) { lines.push({ menuId: m.id, soort: s, qty: q[s], remark: first ? (L.remark[m.id] || '').trim() : '' }); first = false; } }); });
-    const summary = () => h('div', { class: 'card' }, items.filter(m => get(m.id).wit + get(m.id).bruin > 0).map(m => { const q = get(m.id), rem = (L.remark[m.id] || '').trim();
-      return h('div', { class: 'sumline' }, h('div', { class: 'r' }, h('b', {}, m.name), h('span', {}, [q.wit ? q.wit + ' wit' : '', q.bruin ? q.bruin + ' bruin' : ''].filter(Boolean).join(' · '))), rem ? h('div', { class: 'rem' }, 'Opmerking: ' + rem) : null); }),
-      h('div', { class: 'total' }, h('span', {}, 'Totaal'), h('b', {}, total() + ' stuks')));
+    const lines = lesLines(L, items); // [{menuId, soort, qty, remark}]
+    const summary = () => lesSummary(L, items);
     if (L.step === 'overzicht') {
       const send = h('button', { class: 'btn big', disabled: !L.ok, onclick: e => act(e.currentTarget, async () => {
         const r = await api('placeOrder', { place: L.place, date: todayISO(), lines });
@@ -407,10 +426,10 @@
     await refreshState();
     try {
       const saved = JSON.parse(sessionStorage.getItem('bj_s') || 'null');
-      if (saved && saved.id) { S.session = saved; if (saved.mustChange) { go('code'); return; } await enter(); return; }
+      if (saved && saved.id) { S.session = saved; await enter(); return; }
     } catch (e) { sessionStorage.removeItem('bj_s'); S.session = null; }
     viewLogin();
   })();
   // ---------- beheerschermen: zie app-admin.js ----------
-  window.__bjCore = { h, mount, frame, go, api, act, notify, stepper, eur, hhmm, typeLabel, parsePrice, S, VIEWS, isBeheer, isAdmin, closeLabel, logout, refreshState, todayISO, nowServer };
+  window.__bjCore = { lesCards, lesLines, lesSummary, lesTotal, h, mount, frame, go, api, act, notify, stepper, eur, hhmm, typeLabel, parsePrice, S, VIEWS, isBeheer, isAdmin, closeLabel, logout, refreshState, todayISO, nowServer };
 })();
