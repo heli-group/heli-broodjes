@@ -167,7 +167,12 @@
   D('Kies geen code met enkel hetzelfde cijfer.', 'Ne choisissez pas un code composé du même chiffre.', 'Do not choose a code made of the same digit.');
   D('Kies geen code zoals 1234 of 4321.', 'Ne choisissez pas un code comme 1234 ou 4321.', 'Do not choose a code like 1234 or 4321.');
   P(/^De code heeft (\d+) tot (\d+) cijfers\.$/, m => `Le code comporte de ${m[1]} à ${m[2]} chiffres.`, m => `The code has ${m[1]} to ${m[2]} digits.`);
-  P(/^Te veel foute pogingen\. Probeer over (\d+) minuten opnieuw\.$/, m => `Trop de tentatives échouées. Réessayez dans ${m[1]} minute${m[1] === '1' ? '' : 's'}.`, m => `Too many failed attempts. Try again in ${m[1]} minute${m[1] === '1' ? '' : 's'}.`);
+  P(/^Te veel foute pogingen\. Probeer over (\d+) minuten? opnieuw(, of vraag een beheerder om een nieuwe code)?\.$/,
+    m => `Trop de tentatives échouées. Réessayez dans ${m[1]} minute${m[1] === '1' ? '' : 's'}${m[2] ? ', ou demandez un nouveau code à un gestionnaire' : ''}.`,
+    m => `Too many failed attempts. Try again in ${m[1]} minute${m[1] === '1' ? '' : 's'}${m[2] ? ', or ask an administrator for a new code' : ''}.`);
+  P(/^Dat is niet de juiste code\. Probeer opnieuw\. Nog (\d+) poging(?:en)?\.$/,
+    m => `Ce n'est pas le bon code. Réessayez. Encore ${m[1]} tentative${m[1] === '1' ? '' : 's'}.`,
+    m => `That is not the right code. Please try again. ${m[1]} attempt${m[1] === '1' ? '' : 's'} left.`);
 
   // ---------- producten, plaatsen (enkel de weergave; opgeslagen blijft alles Nederlands) ----------
   [

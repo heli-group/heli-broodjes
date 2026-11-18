@@ -158,3 +158,9 @@ table.codes td{border-bottom:1px solid #E1E6EC;padding:.5rem .4rem;font-size:1.1
 .lang-btn.on{background:var(--navy);border-color:var(--navy);color:#fff}
 .lang-btn:focus-visible{outline:3px solid var(--orange);outline-offset:2px}
 .who{flex-wrap:wrap;justify-content:flex-end}
+
+/* aanmeldlogboek */
+.logrow{padding:.55rem 0;border-bottom:1px solid #e5e7eb}
+.logrow .l1{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}
+.logrow .when{font-variant-numeric:tabular-nums;color:var(--mut);font-size:.9rem;min-width:8.6rem}
+.logrow .l2{font-size:.88rem;margin-top:.15rem;padding-left:0}

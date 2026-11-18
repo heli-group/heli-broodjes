@@ -266,6 +266,34 @@
       h('div', { style: 'display:flex;gap:.6rem;flex-wrap:wrap' }, send, h('button', { class: 'btn sec', onclick: csv }, 'Download detail (Excel)')));
   };
 
+  // ----- aanmeldlogboek (enkel IT) -----
+  const LOGRES = { ok: ['Gelukt', 'ok'], fout_code: ['Foute code', 'warn'], geblokkeerd: ['Geblokkeerd', 'warn'], geen_code: ['Geen code', 'grey'], niet_actief: ['Niet actief', 'grey'], onbekend: ['Onbekend', 'grey'], gedeblokkeerd: ['Gedeblokkeerd', 'ok'] };
+  const LOGVIA = { login: 'Aanmelden', api: 'Bewerking', beheer: 'Beheerder' };
+  VIEWS.log = async function viewLog(opt) {
+    const o = Object.assign({ filter: 'problemen', days: 7, q: '' }, VIEWS.log.o || {}, opt || {}); VIEWS.log.o = o;
+    loading('Aanmeldlogboek');
+    const r = await api('loginLog', { filter: o.filter, days: o.days, q: o.q });
+    const seg = (items, cur, set) => h('div', { class: 'seg' }, items.map(([v, l]) => h('button', { class: cur === v ? 'on' : '', onclick: () => set(v) }, l)));
+    const stamp = iso => { const d = new Date(iso); return d.toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }); };
+    let timer;
+    const search = h('input', { class: 'field', type: 'search', placeholder: 'Zoek een naam', value: o.q, 'aria-label': 'Zoek een naam', oninput: e => { clearTimeout(timer); const v = e.target.value; timer = setTimeout(() => VIEWS.log({ q: v }), 450); } });
+    const t = r.today;
+    const rows = r.entries.map(e => { const [label, cls] = LOGRES[e.result] || [e.result, 'grey'];
+      return h('div', { class: 'logrow' },
+        h('div', { class: 'l1' }, h('span', { class: 'when' }, stamp(e.ts)), h('b', {}, e.person), ' ', e.type ? h('small', {}, typeLabel(e.type)) : null, h('span', { class: 'chip ' + cls }, label)),
+        h('div', { class: 'l2 muted' }, [LOGVIA[e.via] || e.via, e.result === 'fout_code' && e.tries ? 'poging ' + e.tries : null, e.lockUntil && e.result !== 'gedeblokkeerd' ? 'geblokkeerd tot ' + hhmm(e.lockUntil) : null, e.device && e.device !== 'onbekend' ? e.device : null, e.ip ? 'IP ' + e.ip : null, e.note].filter(Boolean).join(' · ')));
+    });
+    page('Aanmeldlogboek',
+      h('p', { class: 'muted' }, 'Elke aanmelding en elke foute code komt hier. De code zelf wordt nooit bewaard. Het logboek wordt ' + r.retentionDays + ' dagen bewaard en enkel IT ziet het.'),
+      h('div', { class: 'card' }, h('h2', {}, 'Vandaag'), h('div', { class: 'chips' },
+        h('span', { class: 'chip ok' }, t.ok + ' aanmeldingen gelukt'), h('span', { class: 'chip ' + (t.wrongCode ? 'warn' : 'grey') }, t.wrongCode + ' foute codes'), h('span', { class: 'chip ' + (t.blocked ? 'warn' : 'grey') }, t.blocked + ' keer geblokkeerd'),
+        h('span', { class: 'chip grey' }, t.people + ' personen met een probleem'))),
+      h('div', { class: 'card' }, h('div', { style: 'display:flex;gap:.8rem;flex-wrap:wrap;margin-bottom:.6rem' },
+        seg([['problemen', 'Enkel problemen'], ['alles', 'Alles']], o.filter, v => VIEWS.log({ filter: v })), seg([[1, 'Vandaag'], [7, '7 dagen'], [30, '30 dagen']], o.days, v => VIEWS.log({ days: v }))),
+        search, rows.length ? rows : h('p', { class: 'muted' }, o.filter === 'problemen' ? 'Geen problemen in deze periode.' : 'Niets in deze periode.')));
+    const f = document.querySelector('input[type=search]'); if (f && o.q) { f.focus(); f.setSelectionRange(o.q.length, o.q.length); }
+  };
+
   // ----- prijzen -----
   VIEWS.prijzen = async function viewPrijzen() {
     loading('Prijzen invullen');
@@ -348,8 +376,16 @@
     const r = await api('listPersons', { q });
     let timer;
     const search = h('input', { class: 'field', type: 'search', placeholder: 'Zoek een naam', value: q, 'aria-label': 'Zoek een naam', oninput: e => { clearTimeout(timer); const v = e.target.value; timer = setTimeout(() => VIEWS.codes(v), 400); } });
-    const rows = r.persons.map(p => h('div', { class: 'row2' }, h('span', {}, h('b', {}, p.name), ' ', h('small', {}, typeLabel(p.type)), ' ', p.actief ? null : h('span', { class: 'chip grey' }, 'Niet actief'), ' ', p.hasCode ? null : h('span', { class: 'chip warn' }, 'Nog geen code')),
+    const unlock = (p, e) => act(e.currentTarget, async () => { await api('unlock', { targetId: p.id }); notify(p.name + ' kan weer aanmelden. De code is niet veranderd.', 'ok'); VIEWS.codes(q); });
+    const locked = r.locked || [];
+    const lockedCard = locked.length ? h('div', { class: 'card warnc' }, h('h2', {}, 'Nu geblokkeerd (' + locked.length + ')'),
+      h('p', { class: 'muted' }, 'Na te veel foute pogingen is iemand een tijdje geblokkeerd, ook met de juiste code. Deblokkeren laat de code zoals ze is. Wie zijn code kwijt is, krijgt een nieuwe code.'),
+      locked.map(p => h('div', { class: 'row2' }, h('span', {}, h('b', {}, p.name), ' ', h('small', {}, typeLabel(p.type)), ' ', h('span', { class: 'chip warn' }, 'tot ' + hhmm(p.lockUntil))),
+        h('span', { class: 'tools' }, h('button', { class: 'btn small', onclick: e => unlock(p, e) }, 'Deblokkeren'),
+          h('button', { class: 'btn sec small', onclick: e => act(e.currentTarget, async () => { const c = await api('resetCode', { targetId: p.id }); codeModal(p.name, c.code); VIEWS.codes(q); }) }, 'Nieuwe code'))))) : null;
+    const rows = r.persons.map(p => h('div', { class: 'row2' }, h('span', {}, h('b', {}, p.name), ' ', h('small', {}, typeLabel(p.type)), ' ', p.actief ? null : h('span', { class: 'chip grey' }, 'Niet actief'), ' ', p.hasCode ? null : h('span', { class: 'chip warn' }, 'Nog geen code'), ' ', p.lockUntil ? h('span', { class: 'chip warn' }, 'Geblokkeerd tot ' + hhmm(p.lockUntil)) : null),
       h('span', { class: 'tools' },
+        p.lockUntil ? h('button', { class: 'btn small', onclick: e => unlock(p, e) }, 'Deblokkeren') : null,
         h('button', { class: 'btn small', onclick: e => act(e.currentTarget, async () => { const c = await api('resetCode', { targetId: p.id }); codeModal(p.name, c.code); }) }, 'Nieuwe code'),
         h('button', { class: 'btn sec small', onclick: () => customCodeModal(p) }, 'Eigen code'),
         h('button', { class: 'btn sec small', onclick: e => act(e.currentTarget, async () => { await api('setActive', { targetId: p.id, actief: !p.actief }); VIEWS.codes(q); }) }, p.actief ? 'Zet op niet actief' : 'Zet op actief'))));
@@ -359,7 +395,7 @@
       h('select', { class: 'field', 'aria-label': 'Soort', onchange: e => { nType = e.target.value; } }, h('option', { value: 'personeel' }, 'Personeel'), h('option', { value: 'lesgever' }, 'Lesgever')),
       h('input', { class: 'field', inputmode: 'numeric', maxlength: '8', placeholder: 'Eigen code (optioneel, anders maken we er een)', 'aria-label': 'Eigen code', oninput: e => { nCode = e.target.value; } }),
       h('button', { class: 'btn', onclick: e => act(e.currentTarget, async () => { const c = await api('addPerson', { name: nName, type: nType, code: nCode.trim() }); codeModal(nName.trim(), c.code); VIEWS.codes(q); }) }, 'Toevoegen en code maken'));
-    page('Codes beheren', h('p', { class: 'muted' }, 'Een code wordt maar één keer getoond. Bestaande codes kan niemand opvragen, enkel vervangen. Je kan een code laten maken of zelf een code kiezen.'),
+    page('Codes beheren', lockedCard, h('p', { class: 'muted' }, 'Een code wordt maar één keer getoond. Bestaande codes kan niemand opvragen, enkel vervangen. Je kan een code laten maken of zelf een code kiezen.'),
       r.persons.some(p => p.actief && !p.hasCode) ? h('p', {}, h('button', { class: 'btn', onclick: e => act(e.currentTarget, async () => { const x = await api('bulkCodes'); bulkModal(x.items); VIEWS.codes(q); }) }, 'Codes maken voor iedereen zonder code')) : null,
       h('div', { class: 'two' }, h('div', { class: 'card' }, search, rows.length ? rows : h('p', { class: 'muted' }, 'Niemand gevonden.')), add));
     const f = document.querySelector('input[type=search]'); if (f && q) { f.focus(); f.setSelectionRange(q.length, q.length); }
