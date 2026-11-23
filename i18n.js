@@ -110,6 +110,9 @@
   // ---------- mijn bestellingen ----------
   P(/^Annuleren kan tot (.+)$/, m => `Annulation possible jusqu'à ${time(m[1], 'fr')}`, m => `You can cancel until ${time(m[1], 'en')}`);
   D('Bestelling geannuleerd.', 'Commande annulée.', 'Order cancelled.');
+  D('Deze bestelling annuleren?', `Annuler cette commande${NB}?`, 'Cancel this order?');
+  D('De broodjeszaak is al verwittigd. Annuleer je toch, dan bellen de beheerders ze voor je.', "Le traiteur a déjà été prévenu. Si vous annulez quand même, les gestionnaires lui téléphoneront pour vous.", 'The sandwich shop has already been told. If you still cancel, the administrators will call them for you.');
+  D('Bestelling geannuleerd. De broodjeszaak was al verwittigd: de beheerders bellen ze.', "Commande annulée. Le traiteur avait déjà été prévenu : les gestionnaires lui téléphonent.", 'Order cancelled. The sandwich shop had already been told: the administrators will call them.');
   D('Je hebt vandaag nog niets besteld.', "Vous n'avez encore rien commandé aujourd'hui.", 'You have not ordered anything today.');
   D('Totaal deze maand', 'Total ce mois-ci', 'Total this month');
   P(/^(\d+) bestelling\(en\) zonder prijs zijn nog niet meegeteld\.$/, m => `${m[1]} commande(s) sans prix ne sont pas encore comptées.`, m => `${m[1]} order(s) without a price are not counted yet.`);

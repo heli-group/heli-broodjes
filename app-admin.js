@@ -294,6 +294,84 @@
     const f = document.querySelector('input[type=search]'); if (f && o.q) { f.focus(); f.setSelectionRange(o.q.length, o.q.length); }
   };
 
+  // ----- bestellingen aanpassen en annuleren -----
+  const SOORTLABEL = { wit: 'Wit', bruin: 'Bruin', fitness: 'Fitness' };
+  const longDate = iso => new Date(iso + 'T12:00:00').toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  VIEWS.orders = async function viewOrders(opt) {
+    const o = Object.assign({ q: '', date: '' }, VIEWS.orders.o || {}, opt || {}); VIEWS.orders.o = o;
+    if (!VIEWS.orders.draft || (opt && (opt.date !== undefined || opt.q !== undefined))) VIEWS.orders.draft = {};
+    loading('Bestellingen aanpassen');
+    const r = await api('listOrders', { date: o.date, q: o.q });
+    const drafts = VIEWS.orders.draft;
+    const draftOf = g => drafts[g.ref] || (drafts[g.ref] = { place: g.place, note: '', lines: Object.fromEntries(g.lines.map(l => [l.id, { qty: l.qty, soort: l.soort, remark: l.remark }])) });
+    const dirty = g => { const d = draftOf(g); return d.place !== g.place || g.lines.some(l => { const x = d.lines[l.id]; return x.qty !== l.qty || x.soort !== l.soort || x.remark !== l.remark; }); };
+    const draw = () => {
+      const search = h('input', { class: 'field', type: 'search', placeholder: 'Zoek een naam', value: o.q, 'aria-label': 'Zoek een naam', oninput: e => { clearTimeout(draw.t); const v = e.target.value; draw.t = setTimeout(() => VIEWS.orders({ q: v }), 450); } });
+      const datePick = r.canPickDate ? h('label', { class: 'datepick' }, 'Datum ', h('input', { type: 'date', value: r.date, max: new Date().toISOString().slice(0, 10), min: '2025-01-01', 'aria-label': 'Datum', onchange: e => { if (e.target.value) VIEWS.orders({ date: e.target.value }); } })) : null;
+      const cards = r.orders.map(g => { const d = draftOf(g), places = (g.type === 'lesgever' ? r.places.lesgevers : r.places.personeel) || [];
+        const lines = g.lines.map(l => { const x = d.lines[l.id], gone = x.qty === 0;
+          return h('div', { class: 'ordline' + (gone ? ' struck' : '') }, h('div', { class: 'ordname' }, h('b', {}, l.name), gone ? h('span', { class: 'chip warn' }, 'wordt geannuleerd') : null),
+            h('div', { class: 'ordedit' }, stepper(x.qty, 0, 20, v => { x.qty = v; draw(); }, 'Aantal'),
+              l.soorten.length ? h('select', { class: 'field', 'aria-label': 'Soort', onchange: e => { x.soort = e.target.value; draw(); } }, l.soorten.map(s => h('option', { value: s, selected: x.soort === s }, SOORTLABEL[s]))) : null,
+              gone ? null : h('input', { class: 'field', placeholder: l.other ? 'Wat precies?' : 'Opmerking', value: x.remark, 'aria-label': 'Opmerking', oninput: e => { x.remark = e.target.value; draw.dirtyOnly(g); } })));
+        });
+        const save = h('button', { class: 'btn', id: 'sv-' + g.ref, disabled: !dirty(g), onclick: e => act(e.currentTarget, async () => {
+          const res = await api('editOrder', { ref: g.ref, place: d.place, note: d.note, lines: g.lines.map(l => ({ id: l.id, qty: d.lines[l.id].qty, soort: d.lines[l.id].soort, remark: d.lines[l.id].remark })) });
+          delete drafts[g.ref]; notify(res.cancelled ? 'De bestelling is geannuleerd.' : 'Opgeslagen.' + (res.communicated ? ' De broodjeszaak was al verwittigd: bel ze, zie Nog door te bellen.' : ''), 'ok'); VIEWS.orders();
+        }) }, 'Opslaan');
+        const cancel = h('button', { class: 'btn danger', onclick: e => { if (!window.confirm('De hele bestelling van ' + g.person + ' annuleren?')) return; act(e.currentTarget, async () => {
+          const res = await api('adminCancelOrder', { ref: g.ref, note: d.note }); delete drafts[g.ref]; notify('De bestelling is geannuleerd.' + (res.communicated ? ' De broodjeszaak was al verwittigd: bel ze, zie Nog door te bellen.' : ''), 'ok'); VIEWS.orders(); }); } }, 'Hele bestelling annuleren');
+        return h('div', { class: 'card ordcard' + (g.communicated ? ' warnc' : '') },
+          h('div', { class: 'row2' }, h('span', {}, h('b', {}, g.person), ' ', h('small', {}, typeLabel(g.type)), ' ', h('span', { class: 'chip grey' }, g.status), g.pending ? h('span', { class: 'chip warn' }, 'Nog door te bellen') : null), h('small', {}, hhmm(g.ts))),
+          g.communicated ? h('p', { class: 'muted' }, 'De broodjeszaak is al verwittigd. Na het opslaan komt de wijziging bij Nog door te bellen.') : null,
+          lines, h('div', { class: 'ordfoot' },
+            places.length ? h('select', { class: 'field', 'aria-label': 'Leverplaats', onchange: e => { d.place = e.target.value; draw(); } }, places.map(p => h('option', { value: p, selected: d.place === p }, p))) : null,
+            h('input', { class: 'field', placeholder: 'Reden (komt in het logboek)', value: d.note, 'aria-label': 'Reden', oninput: e => { d.note = e.target.value; } })),
+          h('div', { class: 'ordbtns' }, save, cancel));
+      });
+      page('Bestellingen aanpassen',
+        h('p', { class: 'muted' }, r.canPickDate ? 'Als admin kan je alle bestellingen aanpassen of annuleren, ook van andere dagen. Elke wijziging komt in het Wijzigingslogboek.' : 'Je kan de bestellingen van vandaag aanpassen of annuleren. Elke wijziging wordt bijgehouden.'),
+        r.hrSent ? h('div', { class: 'banner warn' }, h('b', {}, 'Het maandoverzicht van ' + longDate(r.date).replace(/^\S+ \d+ /, '') + ' is al naar HR gestuurd.'), ' Een wijziging komt niet automatisch bij HR terecht.') : null,
+        h('div', { class: 'card' }, h('div', { style: 'display:flex;gap:.8rem;flex-wrap:wrap;align-items:center' }, h('b', { style: 'text-transform:capitalize' }, longDate(r.date)), datePick), search),
+        cards.length ? cards : h('p', { class: 'muted' }, 'Geen bestellingen gevonden.'));
+      const f = document.querySelector('input[type=search]'); if (f && o.q) { f.focus(); f.setSelectionRange(o.q.length, o.q.length); }
+    };
+    draw.dirtyOnly = g => { const b = document.getElementById('sv-' + g.ref); if (b) b.disabled = !dirty(g); };
+    draw();
+  };
+
+  // ----- wijzigingslogboek (enkel IT) -----
+  const ROLELABEL = { zelf: 'Zelf', beheerder: 'Beheerder', admin: 'Admin' };
+  const ACTLABEL = { geannuleerd: ['Geannuleerd', 'warn'], aangepast: ['Aangepast', 'grey'], doorgebeld: ['Doorgebeld', 'ok'] };
+  VIEWS.wijzigingen = async function viewWijzigingen(opt) {
+    const o = Object.assign({ days: 30, filter: 'alles', q: '' }, VIEWS.wijzigingen.o || {}, opt || {}); VIEWS.wijzigingen.o = o;
+    loading('Wijzigingslogboek');
+    const r = await api('changeLog', { days: o.days, filter: o.filter, q: o.q });
+    const seg = (items, cur, set) => h('div', { class: 'seg' }, items.map(([v, l]) => h('button', { class: cur === v ? 'on' : '', onclick: () => set(v) }, l)));
+    const stamp = iso => { const d = new Date(iso); return d.toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit', year: '2-digit' }) + ' ' + d.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' }); };
+    let timer;
+    const search = h('input', { class: 'field', type: 'search', placeholder: 'Zoek op naam (bestelling of aanpasser)', value: o.q, 'aria-label': 'Zoek', oninput: e => { clearTimeout(timer); const v = e.target.value; timer = setTimeout(() => VIEWS.wijzigingen({ q: v }), 450); } });
+    const s = r.summary;
+    const rows = r.entries.map(e => { const [label, cls] = ACTLABEL[e.action] || [e.action, 'grey'];
+      return h('div', { class: 'logrow' },
+        h('div', { class: 'l1' }, h('span', { class: 'when' }, stamp(e.ts)), h('b', {}, e.owner || '?'), ' ', e.ownerType ? h('small', {}, typeLabel(e.ownerType)) : null, h('span', { class: 'chip ' + cls }, label),
+          h('span', { class: 'chip grey' }, ROLELABEL[e.role] || e.role), e.communicated && e.action !== 'doorgebeld' ? h('span', { class: 'chip warn' }, 'Na verzenden') : null, e.hrSent && e.action !== 'doorgebeld' ? h('span', { class: 'chip warn' }, 'HR al verstuurd') : null),
+        h('div', { class: 'l2' }, e.action === 'doorgebeld' ? 'Door ' + e.by + ' doorgebeld aan de broodjeszaak.' : [h('span', { class: 'muted' }, 'Door ' + e.by + ' · bestelling van ' + (e.date ? e.date.split('-').reverse().join('/') : '?')),
+          h('div', {}, h('b', {}, 'Voor: '), e.before || '-'), e.after ? h('div', {}, h('b', {}, 'Na: '), e.after) : h('div', {}, h('b', {}, 'Na: '), 'geannuleerd'), e.note ? h('div', { class: 'muted' }, 'Reden: ' + e.note) : null]));
+    });
+    page('Wijzigingslogboek',
+      h('p', { class: 'muted' }, 'Elke keer dat een bestelling werd geannuleerd of aangepast, met wie het deed, wat er voor en na stond, en of de broodjeszaak of HR al verwittigd was. Het logboek wordt ' + r.retentionMonths + ' maanden bewaard en enkel IT ziet het.'),
+      h('div', { class: 'card' }, h('h2', {}, 'Laatste ' + o.days + ' dagen'), h('div', { class: 'chips' },
+        h('span', { class: 'chip grey' }, s.total + ' wijzigingen'), h('span', { class: 'chip grey' }, s.cancelled + ' geannuleerd'), h('span', { class: 'chip grey' }, s.edited + ' aangepast'),
+        h('span', { class: 'chip ' + (s.afterSent ? 'warn' : 'grey') }, s.afterSent + ' na verzenden'), h('span', { class: 'chip ' + (s.afterHr ? 'warn' : 'grey') }, s.afterHr + ' na het maandoverzicht voor HR'),
+        h('span', { class: 'chip grey' }, s.self + ' door de persoon zelf'), h('span', { class: 'chip grey' }, s.staff + ' door beheerders'), h('span', { class: 'chip grey' }, s.admin + ' door admin'))),
+      h('div', { class: 'card' }, h('div', { style: 'display:flex;gap:.8rem;flex-wrap:wrap;margin-bottom:.6rem' },
+        seg([[7, '7 dagen'], [30, '30 dagen'], [90, '90 dagen'], [365, '12 maanden']], o.days, v => VIEWS.wijzigingen({ days: v })),
+        seg([['alles', 'Alles'], ['naverzenden', 'Na verzenden'], ['hr', 'Na HR']], o.filter, v => VIEWS.wijzigingen({ filter: v }))),
+        search, rows.length ? rows : h('p', { class: 'muted' }, 'Geen wijzigingen in deze periode.')));
+    const f = document.querySelector('input[type=search]'); if (f && o.q) { f.focus(); f.setSelectionRange(o.q.length, o.q.length); }
+  };
+
   // ----- prijzen -----
   VIEWS.prijzen = async function viewPrijzen() {
     loading('Prijzen invullen');
@@ -365,7 +443,12 @@
         done ? h('small', {}, 'Doorgebeld door ' + (it.calledBy || '?') + (it.calledAt ? ' om ' + hhmm(it.calledAt) : ''))
           : h('button', { class: 'btn', onclick: e => act(e.currentTarget, async () => { await api('markCalled', { ref: it.ref }); notify('Geregistreerd als doorgebeld.', 'ok'); VIEWS.bellen(); }) }, 'Doorgebeld'));
     });
-    page('Nog door te bellen', h('p', { class: 'muted' }, 'Bestellingen die binnenkwamen nadat de mail was verstuurd.'),
+    const changes = (r.changes || []).map(c => h('div', { class: 'card warnc' }, h('div', { class: 'row2' }, h('b', {}, c.person + ' · ' + c.place), h('span', { class: 'chip warn' }, c.cancelled ? 'Geannuleerd' : 'Gewijzigd')),
+      String(c.text || '').split(' | ').map(t => h('div', {}, t)), c.changedAt ? h('small', {}, 'Gewijzigd om ' + hhmm(c.changedAt)) : null,
+      h('button', { class: 'btn', onclick: e => act(e.currentTarget, async () => { await api('markChangeCalled', { ref: c.ref }); notify('Geregistreerd als doorgebeld.', 'ok'); VIEWS.bellen(); }) }, 'Doorgebeld')));
+    page('Nog door te bellen',
+      changes.length ? [h('h2', {}, 'Wijzigingen nadat de broodjeszaak verwittigd was'), h('p', { class: 'muted' }, 'Een bestelling werd geannuleerd of aangepast, maar de broodjeszaak kent nog de oude versie. Bel ze en klik op Doorgebeld.'), h('div', { class: 'two' }, changes)] : null,
+      h('h2', {}, 'Bestellingen die te laat binnenkwamen'), h('p', { class: 'muted' }, 'Bestellingen die binnenkwamen nadat de mail was verstuurd.'),
       cards.length ? h('div', { class: 'two' }, cards) : h('p', { class: 'muted' }, 'Niets door te bellen.'),
       h('p', {}, h('button', { class: 'btn sec', onclick: () => VIEWS.mail('additions') }, 'Mail opnieuw opstellen')));
   };

@@ -164,3 +164,15 @@ table.codes td{border-bottom:1px solid #E1E6EC;padding:.5rem .4rem;font-size:1.1
 .logrow .l1{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem}
 .logrow .when{font-variant-numeric:tabular-nums;color:var(--mut);font-size:.9rem;min-width:8.6rem}
 .logrow .l2{font-size:.88rem;margin-top:.15rem;padding-left:0}
+
+/* bestellingen aanpassen */
+.ordcard .ordline{padding:.6rem 0;border-bottom:1px solid #e5e7eb}
+.ordcard .ordname{display:flex;gap:.5rem;align-items:center;margin-bottom:.4rem}
+.ordcard .ordedit{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center}
+.ordcard .ordedit .field{flex:1;min-width:10rem;margin:0}
+.ordcard .struck b{text-decoration:line-through;color:var(--mut)}
+.ordcard .ordfoot{display:flex;flex-wrap:wrap;gap:.6rem;margin:.7rem 0}
+.ordcard .ordfoot .field{flex:1;min-width:11rem;margin:0}
+.ordcard .ordbtns{display:flex;flex-wrap:wrap;gap:.6rem}
+.datepick{display:inline-flex;gap:.4rem;align-items:center;font-weight:600}
+.datepick input{border:2px solid #AAB5C2;border-radius:.5rem;padding:.35rem .5rem;font:inherit}

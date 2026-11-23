@@ -248,8 +248,8 @@
       const t = (label, view, n) => h('button', { class: 'tile', onclick: () => go(view) }, n ? h('span', { class: 'badge' }, n) : null, label);
       kids.push(h('div', { class: 'section-label' }, 'Beheer'),
         h('div', { class: 'tiles' }, t('Jeton uitgeven', 'jeton'), t('Maandproducten invullen', 'maand', ov.counts.monthProducts), t('Prijzen invullen', 'prijzen', ov.counts.openPrices),
-          t('Nog door te bellen', 'bellen', ov.counts.toCall), t('Bestelling toevoegen na 9u', 'toevoegen'), t('Assortiment vergadering', 'assortiment'), t('Codes beheren', 'codes', ov.counts.noCode), t('Maandoverzicht HR', 'hr')));
-      if (isAdmin()) kids.push(h('div', { class: 'section-label' }, 'Alleen voor IT'), h('div', { class: 'tiles' }, t('Menu en prijzen', 'menu'), t('Aanmeldlogboek', 'log'), t('Instellingen', 'instellingen')));
+          t('Nog door te bellen', 'bellen', ov.counts.toCall), t('Bestelling toevoegen na 9u', 'toevoegen'), t('Bestellingen aanpassen', 'orders'), t('Assortiment vergadering', 'assortiment'), t('Codes beheren', 'codes', ov.counts.noCode), t('Maandoverzicht HR', 'hr')));
+      if (isAdmin()) kids.push(h('div', { class: 'section-label' }, 'Alleen voor IT'), h('div', { class: 'tiles' }, t('Menu en prijzen', 'menu'), t('Aanmeldlogboek', 'log'), t('Wijzigingslogboek', 'wijzigingen'), t('Instellingen', 'instellingen')));
     }
     mount(frame(h('section', {}, kids)));
   }
@@ -345,7 +345,8 @@
     const r = await api('myOrders');
     const today = r.today.length ? r.today.map(g => h('div', { class: 'card' }, h('div', { class: 'row2' }, h('b', {}, g.place + ' · ' + hhmm(g.ts)), h('span', { class: 'chip grey' }, g.status)),
       g.lines.map(l => h('div', { class: 'row2' }, h('span', {}, l.text), h('b', {}, l.price == null ? 'prijs volgt' : eur(l.price)))),
-      g.canCancel ? h('div', { class: 'row2' }, h('small', {}, 'Annuleren kan tot ' + closeLabel()), h('button', { class: 'btn danger small', onclick: e => act(e.currentTarget, async () => { await api('cancelOrder', { ids: g.ids }); notify('Bestelling geannuleerd.', 'ok'); viewMine(); }) }, 'Annuleren')) : null))
+      g.canCancel ? h('div', {}, g.sent ? h('p', { class: 'muted' }, 'De broodjeszaak is al verwittigd. Annuleer je toch, dan bellen de beheerders ze voor je.') : null,
+        h('div', { class: 'row2' }, h('small', {}, 'Annuleren kan tot ' + closeLabel()), h('button', { class: 'btn danger small', onclick: e => { if (!window.confirm(I18N.tr('Deze bestelling annuleren?'))) return; act(e.currentTarget, async () => { const r = await api('cancelOrder', { ids: g.ids }); notify(r.communicated ? 'Bestelling geannuleerd. De broodjeszaak was al verwittigd: de beheerders bellen ze.' : 'Bestelling geannuleerd.', 'ok'); viewMine(); }); } }, 'Annuleren'))) : null))
       : [h('p', { class: 'muted' }, 'Je hebt vandaag nog niets besteld.')];
     mount(frame(h('div', { class: 'two' },
       h('section', { style: 'display:flex;flex-direction:column;gap:1rem' }, h('div', { class: 'card', style: 'background:#001B35;color:#fff' }, h('span', {}, 'Totaal deze maand'), h('b', { style: 'font-size:2.6rem' }, eur(r.monthTotal)), r.openPrices ? h('small', { style: 'color:#DCE5EF' }, r.openPrices + ' bestelling(en) zonder prijs zijn nog niet meegeteld.') : null), h('h2', {}, 'Vandaag'), today),

@@ -8,8 +8,7 @@
 //  Onderaan de pagina kan je het testuur instellen om "voor 9u" en "na 9u" te zien.
 // ============================================================
 (function () {
-  const KEY = 'bj_demo_v5';
-  const START = '582913'; // startcode in de testmodus
+  const KEY = 'bj_demo_v4';
   const CLK = 'bj_demo_clock';
   const pad = n => String(n).padStart(2, '0');
   function simNow() {
@@ -55,9 +54,8 @@
         { id: 'p10', name: 'Ian', type: 'personeel', beheer: true, actief: true, code: '1111' },
         { id: 'p11', name: 'Lindsay', type: 'personeel', beheer: true, actief: true, code: '1111' },
         { id: 'p12', name: 'Jeroen De Meyer', type: 'personeel', beheer: true, admin: true, actief: true, code: '1111' },
-        { id: 'p13', name: 'Marie Peeters', type: 'personeel', beheer: false, actief: true, code: START, mustChange: true },
-        { id: 'p14', name: 'Tom Vermeulen', type: 'personeel', beheer: false, actief: true, code: '' },
-        { id: 'p15', name: 'Lotte Lesgever', type: 'lesgever', beheer: false, actief: true, code: START, mustChange: true }
+        { id: 'p13', name: 'Marie Peeters', type: 'personeel', beheer: false, actief: true, code: '' },
+        { id: 'p14', name: 'Tom Vermeulen', type: 'personeel', beheer: false, actief: true, code: '' }
       ].map(p => Object.assign({ tries: 0, lockUntil: 0, admin: false }, p)),
       menu: MENU.map((m, i) => ({
         id: 'm' + (i + 1), name: m[0], category: m[1], price: m[2], order: i,
@@ -89,6 +87,13 @@
   const fail = (message, error) => ({ ok: false, message, error: error || 'fout' });
   const person = id => db.persons.find(p => p.id === id);
   const menuItem = id => db.menu.find(m => m.id === id);
+  // Aanmeldlogboek (zoals in de database): wie, wanneer, gelukt of niet. De code zelf wordt nooit bewaard.
+  function logEvent(p, via, result, tries, lockUntil, note) {
+    db.loginLog = db.loginLog || [];
+    db.loginLog.push({ ts: new Date().toISOString(), person: p ? p.name : null, personId: p ? p.id : null, type: p ? p.type : null, via, result, tries: tries == null ? null : tries, lockUntil: lockUntil ? new Date(lockUntil).toISOString() : null, ip: null, device: 'pc · Chrome', note: note || null });
+    if (db.loginLog.length > 500) db.loginLog.shift();
+    save();
+  }
   function who(auth) {
     if (!auth) return null;
     const p = person(auth.id);
@@ -99,7 +104,7 @@
     for (let t = 0; t < 200; t++) { let c = ''; for (let i = 0; i < len; i++) c += Math.floor(Math.random() * 10); if (!codeError(type, c)) return c; }
     return type === 'lesgever' ? '482913' : '4829';
   }
-  const pub = p => ({ id: p.id, name: p.name, type: p.type, beheer: p.beheer || !!p.admin, admin: !!p.admin, mustChange: !!p.mustChange });
+  const pub = p => ({ id: p.id, name: p.name, type: p.type, beheer: p.beheer || !!p.admin, admin: !!p.admin });
   function menuFor(p) {
     let items = db.menu.filter(m => m.active !== false);
     if (!p.beheer) {
@@ -130,6 +135,23 @@
     }
     save();
     return { ok: true, ref, sentAt: simNow().toISOString(), status: out[0].status };
+  }
+  // ---- bestellingen aanpassen en annuleren (zoals in de database) ----
+  const communicated = o => !!o.sentAt || o.status === 'Telefonisch doorgegeven';
+  const groupText = ref => db.orders.filter(o => o.ref === ref && o.status !== 'Geannuleerd').map(lineText).join('; ');
+  const hrSentFor = date => !!(db.hr && db.hr[date.slice(0, 7)] && db.hr[date.slice(0, 7)].sentAt);
+  function logChange(ref, o, by, role, action, before, after, comm, note) {
+    db.orderLog = db.orderLog || [];
+    db.orderLog.push({ ts: simNow().toISOString(), ref, date: o.date, owner: o.person, ownerType: o.type, by: by.name, role, action, before, after, communicated: !!comm, hrSent: hrSentFor(o.date), note: String(note || '').trim().slice(0, 300) || null });
+    if (db.orderLog.length > 600) db.orderLog.shift();
+  }
+  function cancelGroup(ref, by, role, note) {
+    const rows = db.orders.filter(o => o.ref === ref && o.status !== 'Geannuleerd' && o.type !== 'vergadering'); if (!rows.length) return null;
+    const first = rows[0], before = groupText(ref), comm = rows.some(communicated);
+    rows.forEach(o => { o.status = 'Geannuleerd'; o.changedAt = simNow().toISOString(); });
+    if (comm) db.orders.filter(o => o.ref === ref).forEach(o => { o.changeText = (o.changePending ? o.changeText + ' | ' : '') + 'Geannuleerd (' + by.name + '): ' + before; o.changePending = true; });
+    logChange(ref, first, by, role, 'geannuleerd', before, '', comm, note);
+    return { communicated: comm, hrSent: hrSentFor(first.date) };
   }
   const todayOrders = () => db.orders.filter(o => o.date === today() && o.status !== 'Geannuleerd');
   const rowTotal = o => o.unit == null ? 0 : (o.unit + o.surcharge) * o.qty;
@@ -176,14 +198,18 @@
     },
     login(b) {
       const p = person(b.personId);
-      if (!p || !p.actief) return fail('Dit account is niet actief.');
-      if (!p.code) return fail('Je hebt nog geen code. Vraag er een aan bij de broodjes-beheerders.');
-      if (p.lockUntil > Date.now()) return fail('Te veel foute pogingen. Probeer over ' + Math.ceil((p.lockUntil - Date.now()) / 60000) + ' minuten opnieuw.');
+      if (!p) { logEvent(null, 'login', 'onbekend', null, 0); return fail('Dit account is niet actief.'); }
+      if (!p.actief) { logEvent(p, 'login', 'niet_actief', p.tries, 0); return fail('Dit account is niet actief.'); }
+      if (!p.code) { logEvent(p, 'login', 'geen_code', p.tries, 0); return fail('Je hebt nog geen code. Vraag er een aan bij de broodjes-beheerders.'); }
+      const maxT = 5, lockM = 15;
+      if (p.lockUntil > Date.now()) { logEvent(p, 'login', 'geblokkeerd', p.tries, p.lockUntil); return fail('Te veel foute pogingen. Probeer over ' + Math.ceil((p.lockUntil - Date.now()) / 60000) + ' minuten opnieuw, of vraag een beheerder om een nieuwe code.'); }
       if (p.code !== String(b.code)) {
-        p.tries++; if (p.tries >= 5) { p.lockUntil = Date.now() + 15 * 60000; p.tries = 0; save(); return fail('Te veel foute pogingen. Probeer over 15 minuten opnieuw.'); }
-        save(); return fail('Dat is niet de juiste code. Probeer opnieuw.');
+        const t = p.tries + 1;
+        if (t >= maxT) { p.lockUntil = Date.now() + lockM * 60000; p.tries = 0; logEvent(p, 'login', 'fout_code', t, p.lockUntil); save(); return fail('Te veel foute pogingen. Probeer over ' + lockM + ' minuten opnieuw, of vraag een beheerder om een nieuwe code.'); }
+        p.tries = t; logEvent(p, 'login', 'fout_code', t, 0); save();
+        const rest = maxT - t; return fail('Dat is niet de juiste code. Probeer opnieuw. Nog ' + rest + (rest === 1 ? ' poging.' : ' pogingen.'));
       }
-      p.tries = 0; save();
+      p.tries = 0; p.lockUntil = 0; logEvent(p, 'login', 'ok', 0, 0); save();
       return { ok: true, person: pub(p) };
     },
     getState: () => ({ ok: true, state: state() }),
@@ -194,7 +220,7 @@
     },
     myOrders(b, me) {
       const mine = db.orders.filter(o => o.personId === me.id && o.status !== 'Geannuleerd' && o.type !== 'vergadering');
-      const group = rows => { const m = {}; rows.forEach(o => { (m[o.ref] = m[o.ref] || { ref: o.ref, place: o.place, ts: o.ts, status: o.status, lines: [], total: 0, ids: [] }); m[o.ref].lines.push({ text: lineText(o), price: o.unit == null ? null : rowTotal(o) }); m[o.ref].total += rowTotal(o); m[o.ref].ids.push(o.id); }); return Object.values(m); };
+      const group = rows => { const m = {}; rows.forEach(o => { (m[o.ref] = m[o.ref] || { ref: o.ref, place: o.place, ts: o.ts, status: o.status, lines: [], total: 0, ids: [], sent: false }); m[o.ref].sent = m[o.ref].sent || communicated(o); m[o.ref].lines.push({ text: lineText(o), price: o.unit == null ? null : rowTotal(o) }); m[o.ref].total += rowTotal(o); m[o.ref].ids.push(o.id); }); return Object.values(m); };
       const todays = mine.filter(o => o.date === today());
       const toks = db.tokens.filter(t => t.personId === me.id && t.date.slice(0, 7) === monthOf() && !t.undone);
       const monthRows = mine.filter(o => o.date.slice(0, 7) === monthOf());
@@ -202,18 +228,20 @@
         .concat(toks.filter(t => t.date !== today()).map(t => ({ date: t.date, text: t.qty + ' jeton(s)', price: t.qty * t.price })));
       earlier.sort((a, b) => b.date.localeCompare(a.date));
       const total = monthRows.reduce((s, o) => s + rowTotal(o), 0) + toks.reduce((s, t) => s + t.qty * t.price, 0);
-      return { ok: true, today: group(todays).map(g => Object.assign(g, { canCancel: isOpen() && g.status === 'Nieuw' })), monthTotal: total, earlier, openPrices: monthRows.filter(o => o.unit == null).length };
+      return { ok: true, today: group(todays).map(g => Object.assign(g, { canCancel: isOpen() })), monthTotal: total, earlier, openPrices: monthRows.filter(o => o.unit == null).length };
     },
     cancelOrder(b, me) {
       if (!isOpen()) return fail('Annuleren kan niet meer na 9u.');
-      let n = 0; db.orders.forEach(o => { if (o.personId === me.id && o.date === today() && o.status === 'Nieuw' && (b.ids || []).includes(o.id)) { o.status = 'Geannuleerd'; n++; } });
-      save(); return n ? { ok: true } : fail('Deze bestelling kan niet geannuleerd worden.');
+      const refs = [...new Set(db.orders.filter(o => (b.ids || []).includes(o.id) && o.personId === me.id && o.date === today() && o.status !== 'Geannuleerd' && o.type !== 'vergadering').map(o => o.ref))];
+      let any = false, n = 0;
+      refs.forEach(r => { const x = cancelGroup(r, me, 'zelf', null); if (x) { n++; any = any || x.communicated; } });
+      save(); return n ? { ok: true, communicated: any } : fail('Deze bestelling kan niet geannuleerd worden.');
     },
     adminOverview(b, me) {
       if (!me.beheer) return fail('Geen toegang.', 'auth');
       const mo = db.menu.filter(m => m.monthly && m.priceMonth !== monthOf()).length;
       const rows = todayOrders();
-      return { ok: true, state: state(), mail: { auto: false, status: rows.length === 0 ? 'empty' : (db.mail.sentAt ? 'sent' : 'ready'), sentAt: db.mail.sentAt, sentBy: db.mail.sentBy, additions: rows.filter(o => !o.sentAt).length && db.mail.sentAt ? rows.filter(o => !o.sentAt).length : 0 }, counts: { noCode: db.persons.filter(p => p.actief && !p.code).length, monthProducts: mo, openPrices: db.orders.filter(o => o.type !== 'vergadering' && (o.status === 'Prijs te bepalen' || (o.unit == null && o.status !== 'Geannuleerd'))).length, toCall: db.orders.filter(o => o.status === 'Te laat').length } };
+      return { ok: true, state: state(), mail: { auto: false, status: rows.length === 0 ? 'empty' : (db.mail.sentAt ? 'sent' : 'ready'), sentAt: db.mail.sentAt, sentBy: db.mail.sentBy, additions: rows.filter(o => !o.sentAt).length && db.mail.sentAt ? rows.filter(o => !o.sentAt).length : 0 }, counts: { noCode: db.persons.filter(p => p.actief && !p.code).length, monthProducts: mo, openPrices: db.orders.filter(o => o.type !== 'vergadering' && (o.status === 'Prijs te bepalen' || (o.unit == null && o.status !== 'Geannuleerd'))).length, toCall: db.orders.filter(o => o.status === 'Te laat').length + new Set(db.orders.filter(o => o.changePending && o.date === today()).map(o => o.ref)).size } };
     },
     giveTokens(b, me) {
       if (!me.beheer) return fail('Geen toegang.', 'auth');
@@ -257,7 +285,9 @@
       if (!me.beheer) return fail('Geen toegang.', 'auth');
       const m = {};
       db.orders.filter(o => o.date === today() && (o.status === 'Te laat' || (o.status === 'Telefonisch doorgegeven' && o.calledAt))).forEach(o => { (m[o.ref] = m[o.ref] || { ref: o.ref, person: o.person, place: o.place, ts: o.ts, status: o.status, calledBy: o.calledBy, calledAt: o.calledAt, lines: [] }).lines.push(lineText(o)); });
-      return { ok: true, items: Object.values(m).sort((a, b) => b.ts.localeCompare(a.ts)) };
+      const c = {};
+      db.orders.filter(o => o.date === today() && o.changePending).forEach(o => { const g = (c[o.ref] = c[o.ref] || { ref: o.ref, person: o.person, place: o.place, text: o.changeText, changedAt: o.changedAt, cancelled: true }); if (o.status !== 'Geannuleerd') g.cancelled = false; if ((o.changedAt || '') > (g.changedAt || '')) g.changedAt = o.changedAt; });
+      return { ok: true, items: Object.values(m).sort((a, b) => b.ts.localeCompare(a.ts)), changes: Object.values(c).sort((a, b) => (b.changedAt || '').localeCompare(a.changedAt || '')) };
     },
     markCalled(b, me) {
       if (!me.beheer) return fail('Geen toegang.', 'auth');
@@ -358,10 +388,97 @@
       db.hr = db.hr || {}; db.hr[r.month] = { sentAt: simNow().toISOString(), sentBy: me.name, total: r.totals.personeel }; save();
       return { ok: true, sentAt: db.hr[r.month].sentAt, total: r.totals.personeel, persons: r.personeel.length };
     },
+    listOrders(b, me) {
+      if (!me.beheer) return fail('Geen toegang.', 'auth');
+      let date = String(b.date || '').trim() || today();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(new Date(date).getTime())) return fail('Kies een geldige datum.');
+      if (!me.admin) date = today();
+      if (date > today() || date < '2025-01-01') return fail('Kies een geldige datum.');
+      const q = norm(b.q), m = {};
+      db.orders.filter(o => o.date === date && o.type !== 'vergadering' && o.status !== 'Geannuleerd' && (!q || norm(o.person).includes(q))).forEach(o => {
+        const g = (m[o.ref] = m[o.ref] || { ref: o.ref, person: o.person, personId: o.personId, type: o.type, place: o.place, ts: o.ts, status: o.status, communicated: false, pending: false, total: 0, lines: [] });
+        const mi = menuItem(o.menuId); g.communicated = g.communicated || communicated(o); g.pending = g.pending || !!o.changePending; g.total += rowTotal(o);
+        g.lines.push({ id: o.id, name: o.product, category: o.category, soort: o.soort, qty: o.qty, remark: o.remark, price: o.unit == null ? null : rowTotal(o), soorten: mi && mi.fitness ? (o.type === 'lesgever' ? ['wit', 'bruin'] : ['wit', 'bruin', 'fitness']) : [], other: !!(mi && mi.other) });
+      });
+      return { ok: true, date, canPickDate: !!me.admin, hrSent: hrSentFor(date), places: { personeel: db.places.personeel, lesgevers: db.places.lesgevers }, orders: Object.values(m).sort((a, b) => a.ts.localeCompare(b.ts)).slice(0, 200) };
+    },
+    editOrder(b, me) {
+      if (!me.beheer) return fail('Geen toegang.', 'auth');
+      const ref = String(b.ref || ''); const rows = db.orders.filter(o => o.ref === ref && o.type !== 'vergadering' && o.status !== 'Geannuleerd');
+      if (!rows.length) return fail('Deze bestelling bestaat niet meer of is al geannuleerd.');
+      const first = rows[0];
+      if (!me.admin && first.date !== today()) return fail('Enkel een admin kan bestellingen van een andere dag aanpassen.');
+      if (!Array.isArray(b.lines) || b.lines.length > 40) return fail('Ongeldige aanpassing.');
+      const before = groupText(ref), comm = rows.some(communicated); let changed = false;
+      const place = String(b.place || '').trim();
+      if (place && place !== first.place) {
+        const list = first.type === 'lesgever' ? db.places.lesgevers : db.places.personeel;
+        if (!list.includes(place)) return fail('Kies een geldige leverplaats.');
+        rows.forEach(o => { o.place = place; o.changedAt = simNow().toISOString(); }); changed = true;
+      }
+      for (const l of b.lines) {
+        const o = rows.find(x => x.id === l.id); if (!o || o.status === 'Geannuleerd') return fail('Een regel van deze bestelling werd niet gevonden. Vernieuw het scherm.');
+        const nq = parseInt(l.qty, 10); if (!(nq >= 0 && nq <= 20)) return fail('Kies een aantal van 0 tot 20.');
+        if (nq === 0) { o.status = 'Geannuleerd'; o.changedAt = simNow().toISOString(); changed = true; continue; }
+        const m = menuItem(o.menuId); let ns = o.soort;
+        if (l.soort) { if (!(m && m.fitness)) return fail('Dit product heeft geen soort.'); if (!['wit', 'bruin', 'fitness'].includes(l.soort) || (l.soort === 'fitness' && o.type === 'lesgever')) return fail('Ongeldige soort.'); ns = l.soort; }
+        const nr = 'remark' in l ? String(l.remark || '').trim().slice(0, 200) : o.remark;
+        if (m && m.other && !nr) return fail('Typ wat er besteld wordt bij "Iets anders".');
+        const sur = (o.type !== 'lesgever' && ns === 'fitness') ? db.settings.fitnessSurcharge : 0;
+        if (nq !== o.qty || ns !== o.soort || nr !== o.remark || sur !== o.surcharge) { o.qty = nq; o.soort = ns; o.remark = nr; o.surcharge = sur; o.changedAt = simNow().toISOString(); changed = true; }
+      }
+      if (!changed) return fail('Er is niets gewijzigd.');
+      const after = groupText(ref), cancelled = !db.orders.some(o => o.ref === ref && o.status !== 'Geannuleerd');
+      if (comm) db.orders.filter(o => o.ref === ref).forEach(o => { o.changeText = (o.changePending ? o.changeText + ' | ' : '') + (cancelled ? 'Geannuleerd (' + me.name + '): ' + before : 'Gewijzigd (' + me.name + '): ' + before + ' → ' + after); o.changePending = true; });
+      logChange(ref, first, me, me.admin ? 'admin' : 'beheerder', cancelled ? 'geannuleerd' : 'aangepast', before, after, comm, b.note);
+      save(); return { ok: true, communicated: comm, cancelled, hrSent: hrSentFor(first.date) };
+    },
+    adminCancelOrder(b, me) {
+      if (!me.beheer) return fail('Geen toegang.', 'auth');
+      const o = db.orders.find(x => x.ref === b.ref && x.type !== 'vergadering' && x.status !== 'Geannuleerd');
+      if (!o) return fail('Deze bestelling bestaat niet meer of is al geannuleerd.');
+      if (!me.admin && o.date !== today()) return fail('Enkel een admin kan bestellingen van een andere dag annuleren.');
+      const r = cancelGroup(b.ref, me, me.admin ? 'admin' : 'beheerder', b.note); save();
+      return { ok: true, communicated: r.communicated, hrSent: r.hrSent };
+    },
+    markChangeCalled(b, me) {
+      if (!me.beheer) return fail('Geen toegang.', 'auth');
+      const rows = db.orders.filter(o => o.ref === b.ref && o.changePending); if (!rows.length) return fail('Hier is niets door te bellen.');
+      const first = rows[0]; rows.forEach(o => { o.changePending = false; });
+      logChange(b.ref, first, me, me.admin ? 'admin' : 'beheerder', 'doorgebeld', first.changeText, '', true, null); save(); return { ok: true };
+    },
+    changeLog(b, me) {
+      if (!me.admin) return fail('Geen toegang.', 'auth');
+      const days = Math.min(Math.max(parseInt(b.days, 10) || 30, 1), 365), q = norm(String(b.q || '').trim()), f = b.filter || 'alles', since = Date.now() - days * 86400000;
+      const all = (db.orderLog || []).filter(e => new Date(e.ts).getTime() > since);
+      const entries = all.slice().reverse().filter(e => (f === 'alles' || (f === 'naverzenden' && e.communicated && e.action !== 'doorgebeld') || (f === 'hr' && e.hrSent && e.action !== 'doorgebeld')) && (!q || norm(e.owner || '').includes(q) || norm(e.by).includes(q))).slice(0, 400)
+        .map(e => ({ ts: e.ts, ref: e.ref, date: e.date, owner: e.owner, ownerType: e.ownerType, by: e.by, role: e.role, action: e.action, before: e.before, after: e.after, communicated: e.communicated, hrSent: e.hrSent, note: e.note }));
+      const c = fn => all.filter(e => e.action !== 'doorgebeld' && fn(e)).length;
+      return { ok: true, entries, summary: { total: c(() => true), cancelled: c(e => e.action === 'geannuleerd'), edited: c(e => e.action === 'aangepast'), afterSent: c(e => e.communicated), afterHr: c(e => e.hrSent), self: all.filter(e => e.role === 'zelf').length, staff: all.filter(e => e.role === 'beheerder').length, admin: all.filter(e => e.role === 'admin').length }, retentionMonths: 12, days };
+    },
     listPersons(b, me) {
       if (!me.beheer) return fail('Geen toegang.', 'auth');
-      const q = norm(b.q);
-      return { ok: true, persons: db.persons.filter(p => !q || norm(p.name).includes(q)).slice(0, 60).map(p => ({ id: p.id, name: p.name, type: p.type, actief: p.actief, hasCode: !!p.code, mustChange: !!p.mustChange })) };
+      const q = norm(b.q), now = Date.now();
+      return { ok: true,
+        persons: db.persons.filter(p => !q || norm(p.name).includes(q)).slice(0, 60).map(p => ({ id: p.id, name: p.name, type: p.type, actief: p.actief, hasCode: !!p.code, lockUntil: p.lockUntil > now ? new Date(p.lockUntil).toISOString() : null })),
+        locked: db.persons.filter(p => p.lockUntil > now).sort((x, y) => x.lockUntil - y.lockUntil).map(p => ({ id: p.id, name: p.name, type: p.type, lockUntil: new Date(p.lockUntil).toISOString() })) };
+    },
+    unlock(b, me) {
+      if (!me.beheer) return fail('Geen toegang.', 'auth');
+      const p = person(b.targetId); if (!p) return fail('Persoon niet gevonden.');
+      p.tries = 0; p.lockUntil = 0; logEvent(p, 'beheer', 'gedeblokkeerd', 0, 0, 'door ' + me.name); save();
+      return { ok: true, name: p.name };
+    },
+    loginLog(b, me) {
+      if (!me.admin) return fail('Geen toegang.', 'auth');
+      const days = Math.min(Math.max(parseInt(b.days, 10) || 7, 1), 90), lim = Math.min(Math.max(parseInt(b.limit, 10) || 150, 10), 400);
+      const onlyProblems = (b.filter || 'problemen') !== 'alles', q = norm(String(b.q || '').trim()), since = Date.now() - days * 86400000;
+      const all = (db.loginLog || []).slice().reverse();
+      const entries = all.filter(e => new Date(e.ts).getTime() > since && (!onlyProblems || e.result !== 'ok') && (!q || norm(e.person || '').includes(q))).slice(0, lim)
+        .map(e => ({ ts: e.ts, person: e.person || '(onbekend)', type: e.type, via: e.via, result: e.result, tries: e.tries, lockUntil: e.lockUntil, ip: e.ip, device: e.device, note: e.note }));
+      const today = all.filter(e => new Date(e.ts).toDateString() === new Date().toDateString());
+      const c = r => today.filter(e => e.result === r).length;
+      return { ok: true, entries, today: { ok: today.filter(e => e.result === 'ok' && e.via === 'login').length, wrongCode: c('fout_code'), blocked: c('geblokkeerd'), unlocked: c('gedeblokkeerd'), people: new Set(today.filter(e => e.result !== 'ok' && e.personId).map(e => e.personId)).size }, retentionDays: 90, days };
     },
     resetCode(b, me) {
       if (!me.beheer) return fail('Geen toegang.', 'auth');
@@ -373,9 +490,7 @@
     },
     changeOwnCode(b, me) {
       const e = codeError(me.type, b.newCode); if (e) return fail(e);
-      if (String(b.newCode) === START) return fail('Kies een eigen code. De startcode mag niet.');
-      if (String(b.newCode) === me.code) return fail('Kies een andere code dan je huidige code.');
-      me.code = String(b.newCode); me.mustChange = false; me.tries = 0; save(); return { ok: true };
+      me.code = String(b.newCode); me.tries = 0; save(); return { ok: true };
     },
     bulkCodes(b, me) {
       if (!me.beheer) return fail('Geen toegang.', 'auth');
@@ -403,7 +518,6 @@
       if (PUBLIC.includes(body.action)) return fn(body);
       const me = who(body.auth);
       if (!me) return fail('Je bent niet ingelogd.', 'auth');
-      if (me.mustChange && body.action !== 'changeOwnCode') return fail('Kies eerst een eigen code.', 'mustchange');
       return fn(body, me);
     },
     reset() { localStorage.removeItem(KEY); },
